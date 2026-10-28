@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { BassSplit } from '../analysis'
+import { DEFAULT_ACCOMPANY, validAccompany, type AccompanySettings } from '../accompany/settings'
 import { DEFAULT_SETTLE_MS } from '../midi'
 import type { NamingStyle } from './naming'
 
@@ -28,6 +29,7 @@ export type StageSettings = {
   keysVelocity: number
   keysHumanise: boolean
   inputId: string | null
+  accompany: AccompanySettings
 }
 
 export const DEFAULT_STAGE: StageSettings = {
@@ -40,6 +42,7 @@ export const DEFAULT_STAGE: StageSettings = {
   keysVelocity: 90,
   keysHumanise: false,
   inputId: null,
+  accompany: DEFAULT_ACCOMPANY,
 }
 
 export const SPLIT_POINTS: { midi: number; label: string }[] = [
@@ -66,6 +69,7 @@ export function loadStage(): StageSettings {
       splitPoint: SPLIT_POINTS.some((p) => p.midi === s.splitPoint) ? s.splitPoint : 48,
       settleMs: Number.isFinite(s.settleMs) ? s.settleMs : DEFAULT_SETTLE_MS,
       keysVelocity: Number.isFinite(s.keysVelocity) ? s.keysVelocity : 90,
+      accompany: validAccompany(s.accompany),
     }
   } catch {
     // Private window or blocked storage: the page still works, it just forgets.

@@ -1,7 +1,10 @@
 import { useCallback, useMemo, type ReactNode } from 'react'
+import { useAccompanySheet } from '../accompany/accompanist'
+import { LeadSheet } from '../accompany/LeadSheet'
 import { chordNames, keyById, spellMidi } from '../analysis'
 import type { KeyMark } from '../keyboard'
 import { Staff } from '../Staff'
+import { AccompanyBadge } from '../accompany/AccompanyBadge'
 import { ChordCard } from './ChordCard'
 import { LiveInput } from './LiveInput'
 import { MODES, MODE_LABEL, useStage } from './settings'
@@ -45,6 +48,8 @@ export function Workspace({ sidebar, banner, card, aside, notation, marks, roll,
 
   // The staff follows your hands, like the keys; the card is what keeps the chord.
   const staffNotes = notation?.notes ?? held
+  // While the band plays in free play, its chart takes the notation's place.
+  const sheet = useAccompanySheet() && settings.mode === 'free'
 
   return (
     <div className="workspace">
@@ -68,8 +73,9 @@ export function Workspace({ sidebar, banner, card, aside, notation, marks, roll,
       <main className="stage">
         {banner}
         <div className="card-row">
+          <AccompanyBadge />
           {card ?? <ChordCard />}
-          {aside ?? (
+          {aside ?? (sheet ? <LeadSheet /> : (
             <section className="panel notation">
               <header className="panel-head">
                 <h3>{notation?.title ?? 'notation'}</h3>
@@ -77,7 +83,7 @@ export function Workspace({ sidebar, banner, card, aside, notation, marks, roll,
               </header>
               <Staff notes={staffNotes} keyId={key.id} color={notation?.color} />
             </section>
-          )}
+          ))}
         </div>
         <LiveInput nameOf={nameOf} marks={marks} roll={roll} quiet={quiet} />
         {below}

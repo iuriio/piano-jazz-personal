@@ -1,28 +1,37 @@
 // The app's own voice: it sounds the notes YOU play.
 //
 // The point is not to replace a real synth — it is to make the app usable on its
-// own, without opening a DAW first. Two voices, both synthesized: nothing is
-// downloaded, so it works offline and adds no load time.
+// own, without opening a DAW first. Two voices are synthesized: nothing is
+// downloaded, so they work offline and add no load time. The sampled ones
+// (grand, electric pianos: sound/sampled.ts) download on first choice and play
+// the synth piano until they are ready.
 //
 // The parameter maths lives in pure functions at the top, tested without a
 // browser. Only the node wiring below needs an AudioContext.
 
-import { getAudioContext, getMasterBus, resumeAudio } from './audio'
+import { getAudioContext, getFxBus, getMasterBus, resumeAudio } from './audio'
 import { subscribeRaw } from './midi'
+import { KEYS_HELP, KEYS_LABEL, KEYS_TIMBRES, SampledInstrument, isKeysTimbre, type KeysTimbre } from './sound/sampled'
 
-export type Voice = 'off' | 'lead' | 'piano'
+/** 'piano' is the synthesized one; the sampled timbres are KeysTimbre (sound/sampled.ts). */
+export type Voice = 'off' | 'lead' | 'piano' | KeysTimbre
 
 export const VOICE_LABEL: Record<Voice, string> = {
   off: 'off (external)',
   lead: 'lead synth',
-  piano: 'piano',
+  piano: 'synth piano',
+  ...KEYS_LABEL,
 }
 
 export const VOICE_HELP: Record<Voice, string> = {
   off: 'The app stays silent — the sound comes from your own synth or module.',
   lead: 'Warm sustained lead. Holds while the key is down, so lines join up.',
-  piano: 'Struck and decaying, with the damper on the sustain pedal.',
+  piano: 'Struck and decaying, with the damper on the sustain pedal. Nothing to download.',
+  ...KEYS_HELP,
 }
+
+/** Every voice, in menu order. */
+export const VOICES: Voice[] = ['off', 'lead', 'piano', ...KEYS_TIMBRES]
 
 const A4_MIDI = 69
 const SUSTAIN_CC = 64
@@ -139,12 +148,31 @@ export function schedulePianoTone(
   }
 }
 
+/** Reverb send for the sampled keys: a room around them, not a hall. */
+const SAMPLED_REVERB = 0.16
+
 type Held = {
   midi: number
   /** Called to release the voice; returns when its tail is scheduled to end. */
   release: (at: number) => void
   stop: () => void
   started: number
+}
+
+/** Runs `fn` now if the page has had a user gesture, else on the first one. */
+function afterGesture(fn: () => void): void {
+  if (typeof window === 'undefined') return
+  if (navigator.userActivation?.hasBeenActive ?? true) {
+    fn()
+    return
+  }
+  const once = () => {
+    window.removeEventListener('pointerdown', once, true)
+    window.removeEventListener('keydown', once, true)
+    fn()
+  }
+  window.addEventListener('pointerdown', once, true)
+  window.addEventListener('keydown', once, true)
 }
 
 class Instrument {
@@ -156,11 +184,18 @@ class Instrument {
   private sustained = new Set<number>()
   private pedal = false
   private unsubscribe: (() => void) | null = null
+  /** One per sampled timbre, kept once made: switching back is instant. */
+  private sampled = new Map<KeysTimbre, SampledInstrument>()
+  private sampledIn: GainNode | null = null
 
   setVoice(v: Voice): void {
     if (v === this.voice) return
     this.voice = v
     if (v === 'off') this.allOff()
+    // Start downloading now, not on the first note: by the time you play, it is
+    // there. Before any gesture, wait for one: making the AudioContext earlier
+    // only earns a console warning, since the browser keeps it suspended anyway.
+    if (isKeysTimbre(v)) afterGesture(() => this.voice === v && this.sampledFor(v))
   }
 
   getVoice(): Voice {
@@ -209,6 +244,28 @@ class Instrument {
     return this.bus
   }
 
+  /**
+   * The sampled instrument for a timbre, made on first use. Its input carries
+   * a small reverb send; the synth voices stay dry, as they always were.
+   */
+  private sampledFor(t: KeysTimbre): SampledInstrument {
+    let s = this.sampled.get(t)
+    if (!s) {
+      const ctx = getAudioContext()
+      if (!this.sampledIn) {
+        this.sampledIn = ctx.createGain()
+        this.sampledIn.connect(this.ensureBus())
+        const send = ctx.createGain()
+        send.gain.value = SAMPLED_REVERB
+        this.sampledIn.connect(send)
+        send.connect(getFxBus().reverb)
+      }
+      s = new SampledInstrument(ctx, t, this.sampledIn)
+      this.sampled.set(t, s)
+    }
+    return s
+  }
+
   private handle(data: ArrayLike<number>): void {
     if (this.voice === 'off') return
     const command = data[0] & 0xf0
@@ -253,10 +310,14 @@ class Instrument {
 
     const at = ctx.currentTime
     const gain = velocityToGain(velocity)
-    const voice =
-      this.voice === 'piano'
-        ? this.buildPiano(midi, gain, at)
-        : this.buildLead(midi, gain, at)
+    let voice: Held
+    if (isKeysTimbre(this.voice)) {
+      const s = this.sampledFor(this.voice)
+      // Still downloading: the synth piano covers, so the first notes are never silent.
+      voice = s.playable ? this.buildSampled(s, midi, velocity, at) : this.buildPiano(midi, gain, at)
+    } else {
+      voice = this.voice === 'piano' ? this.buildPiano(midi, gain, at) : this.buildLead(midi, gain, at)
+    }
     this.held.set(midi, voice)
   }
 
@@ -290,6 +351,23 @@ class Instrument {
     }
     this.held.clear()
     this.sustained.clear()
+  }
+
+  /**
+   * A sampled note, struck now — no lookahead: smplr starts anything due within
+   * its window on the spot. Velocity goes in raw: the samples have their own
+   * layers and smplr its own curve, and both need the real number to work.
+   * Release is the sample's own (the damper), whether a finger or the pedal
+   * lets go: the pedal logic above stays exactly as it is for the synth.
+   */
+  private buildSampled(s: SampledInstrument, midi: number, velocity: number, at: number): Held {
+    const release = s.start({ note: midi, velocity, time: at })
+    return {
+      midi,
+      started: at,
+      release: (t) => release(t),
+      stop: () => release(getAudioContext().currentTime),
+    }
   }
 
   /**
@@ -484,7 +562,6 @@ export const instrument = new Instrument()
 // --- persisted choice ------------------------------------------------------
 
 const KEY = 'pjt:sound'
-const VOICES: Voice[] = ['off', 'lead', 'piano']
 
 export type SoundSettings = { voice: Voice; level: number }
 /** Lead by default: the app should make a usable sound before anything is set up. */

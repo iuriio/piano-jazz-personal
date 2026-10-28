@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { keyById, readChord } from '../analysis'
 import { chordLabel, detectVoicing } from '../theory'
+import { Swap } from '../ui/Swap'
 import { NAMING_LABEL, nextNamingStyle, styleSymbol } from './naming'
 import { useStage } from './settings'
 import { useShownChordNotes } from './shownChord'
@@ -79,25 +80,30 @@ export function ChordCard() {
 
       <div className="card-body">
         <div className="card-name">
-          {symbol ? (
-            <>
+          {/* Crossfaded by what they say: a new chord replaces the old one in place, a repeat stays still. */}
+          <Swap k={symbol ?? ''}>
+            {symbol ? (
               <div className={`chord-big ${symbol.length > 7 ? 'long' : ''}`}>{symbol}</div>
-              <div className="chord-quality">{reading?.name}</div>
-              {match && (
-                <div className="voicing-name">
-                  {match.voicing.label} on{' '}
-                  {chordLabel(match.rootMidi % 12, match.quality, spelling)}
-                </div>
-              )}
-              {reading && reading.alternatives.length > 0 && (
-                <div className="alt-names">also {reading.alternatives.join(', ')}</div>
-              )}
-            </>
-          ) : (
-            <>
+            ) : (
               <div className="chord-big empty">no chord yet</div>
-              <div className="chord-quality">play on your MIDI keyboard or the computer keys</div>
-            </>
+            )}
+          </Swap>
+          <Swap k={symbol ? (reading?.name ?? '') : ''}>
+            <div className="chord-quality">
+              {symbol ? reading?.name : 'play on your MIDI keyboard or the computer keys'}
+            </div>
+          </Swap>
+          {symbol && match && (
+            <Swap k={`${match.voicing.id}-${match.rootMidi % 12}-${match.quality}`}>
+              <div className="voicing-name">
+                {match.voicing.label} on {chordLabel(match.rootMidi % 12, match.quality, spelling)}
+              </div>
+            </Swap>
+          )}
+          {symbol && reading && reading.alternatives.length > 0 && (
+            <Swap k={reading.alternatives.join()}>
+              <div className="alt-names">also {reading.alternatives.join(', ')}</div>
+            </Swap>
           )}
         </div>
 
@@ -105,7 +111,11 @@ export function ChordCard() {
           {rows.map(([k, v, cls]) => (
             <div key={k}>
               <dt>{k}</dt>
-              <dd className={cls}>{v}</dd>
+              <dd className={cls || undefined}>
+                <Swap as="span" k={v}>
+                  {v}
+                </Swap>
+              </dd>
             </div>
           ))}
           <div>
@@ -114,7 +124,11 @@ export function ChordCard() {
           </div>
         </dl>
       </div>
-      {match?.voicing.note && <p className="voicing-note">{match.voicing.note}</p>}
+      {match?.voicing.note && (
+        <Swap k={match.voicing.note}>
+          <p className="voicing-note">{match.voicing.note}</p>
+        </Swap>
+      )}
     </section>
   )
 }

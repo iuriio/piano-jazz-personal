@@ -554,3 +554,11 @@ describe('chordNames', () => {
     expect(spellMidi(61, opts.key, chordNames([61], opts))).toBe('C#4')
   })
 })
+
+describe('readChord: add eleven', () => {
+  it('C E F G is Cadd11, with the 11 after the fifth', () => {
+    const r = readChord([60, 64, 65, 67], { key: keyById('C'), split: 'off', splitPoint: 47 })!
+    expect(r.symbol).toBe('Cadd11')
+    expect(r.intervals).toContain('11')
+  })
+})

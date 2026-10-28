@@ -9,25 +9,28 @@
   --line: #1c1c1a;
   --border: #2a2a26;
   --border-hover: #4a4a45;
-  /* One green for the dark panels AND the keys: 4.6:1 on the panel (text),
-     4.7:1 on black, 4.1:1 on a black key, 3.3:1 on a white key. */
-  --accent: #468c2b;
-  --accent-bright: #5aa538;
-  --ok: #468c2b;
+  /* One blue for the dark panels AND the keys: 4.6:1 on the panel (text),
+     4.8:1 on black, 4.2:1 on a black key, 3.2:1 on a white key. */
+  --accent: #347ce2;
+  --accent-bright: #6a9ff0;
+  --ok: #347ce2;
   --bad: #e8705f;
   --miss: #4a4a45;
   --warn: #e0a33a;
   --early: #e0a33a;
-  /* The keyboard is the one light surface in the app: a green that reads on the
-     dark panels can vanish on a white key. These are taken dark enough to clear
-     3:1 against BOTH the white and the black keys. */
+  /* The keyboard is the one light surface in the app: a colour that reads on
+     the dark panels can vanish on a white key. The accent is taken dark enough
+     to clear 3:1 against BOTH the white and the black keys. */
   --key-white: #e4e4de;
   --key-black: #1c1c1a;
-  --accent-deep: #3d7a22;
-  /* Struck keys are the accent itself; pedal-held white keys go darker. */
-  --key-lit: #468c2b;
-  --key-held: #2c4f1f;
+  --accent-deep: #2a5ea8;
+  /* Struck keys are the accent itself; pedal-held white keys go darker (8.3:1). */
+  --key-lit: #347ce2;
+  --key-held: #1e3f6e;
   --bad-deep: #c2412f;
+  /* The left hand on the shred roll: a second hue, as legible as the accent. */
+  --hand-left: #985fe8;
+  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: dark;
 }
@@ -44,7 +47,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 14px;
   line-height: 1.6;
   font-weight: 400;
@@ -479,18 +482,7 @@ fieldset.qualities legend {
   padding: 5px 12px;
 }
 
-.rig-transport {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--line);
-  background: var(--bg);
-}
 
-.rig-transport button {
-  padding: 7px 22px;
-}
 
 @media (max-width: 640px) {
   .rig-group {
@@ -1244,18 +1236,7 @@ fieldset.qualities legend {
   padding: 5px 12px;
 }
 
-.rig-transport {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--line);
-  background: var(--bg);
-}
 
-.rig-transport button {
-  padding: 7px 22px;
-}
 
 @media (max-width: 640px) {
   .rig-group {
@@ -2255,13 +2236,7 @@ button.small {
   width: 100%;
 }
 
-.shred-side .rig-transport {
-  justify-content: stretch;
-}
 
-.shred-side .rig-transport button {
-  flex: 1;
-}
 
 .shred-side .mode-help,
 .shred-side .limits {
@@ -2423,4 +2398,571 @@ kbd {
     padding-left: 16px;
     padding-right: 16px;
   }
+}
+
+/* --- numbers in mono --------------------------------------------------------
+   The text is Inter; numbers that change while you play keep the mono, so
+   their digits line up and do not jump around. */
+.tempo-big,
+.tempo .bpm,
+.tempo-picker input.bpm,
+.rep-log span,
+.held-count,
+.fumble-dev,
+kbd {
+  font-family: var(--mono);
+}
+
+/* ---- the logo bar and the footer keep the site's mono ------------------- */
+.topbar,
+.topbar select,
+.topbar button,
+.topbar input,
+.app footer.statusbar {
+  font-family: var(--mono);
+}
+
+/* ==== accompany ===============================================================
+   The band: the corner widget next to the brand and the chart that takes the
+   notation slot while it plays. Only existing tokens, no new colours; the one
+   motion is a single 600 ms fade-in (killed by prefers-reduced-motion above). */
+
+.acc-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  margin-left: -14px; /* closer to the brand than the topbar's 28px gap */
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}
+
+.acc-badge button {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  color: inherit;
+}
+
+.acc-badge button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Listening: a 4 px square, still. It only gets a shade lighter once the ear has a key. */
+.acc-dot {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.acc-dot::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  background: var(--ghost);
+}
+
+.acc-dot.heard::after {
+  background: var(--dim);
+}
+
+.acc-dot:hover::after {
+  background: var(--fg-soft);
+}
+
+.acc-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  min-width: 230px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--fg-soft);
+}
+
+.acc-menu-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.acc-badge .acc-menu-go {
+  justify-self: start;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+
+.acc-badge .acc-menu-go:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.acc-badge .acc-menu-go:disabled {
+  color: var(--ghost);
+  cursor: default;
+}
+
+.acc-menu-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dim);
+}
+
+/* The offer: one hairline box, faded in once, then perfectly still. */
+.acc-offer {
+  gap: 6px;
+  padding: 1px 2px 1px 8px;
+  border: 1px solid var(--accent-deep);
+  animation: acc-in 600ms ease-out both;
+}
+
+@keyframes acc-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.acc-bracket,
+.acc-sep {
+  color: var(--ghost);
+}
+
+.acc-offer .acc-bracket {
+  display: none; /* the box already brackets it; kept for screen-reader-free copy/paste */
+}
+
+.acc-badge .acc-accept {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.acc-badge .acc-choice {
+  color: var(--fg-soft);
+  border-bottom: 1px dotted var(--border-hover);
+}
+
+.acc-badge .acc-choice:disabled {
+  border-bottom-color: transparent;
+  cursor: default;
+}
+
+.acc-badge .acc-accept:hover,
+.acc-badge .acc-choice:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.acc-badge .acc-x {
+  padding: 0 6px;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.acc-badge .acc-x:hover,
+.acc-badge .acc-stop:hover {
+  color: var(--fg);
+}
+
+/* Playing: the chord now in the accent, the next one dim, the beat as four squares. */
+.acc-now {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.acc-next,
+.acc-bpm,
+.acc-wait {
+  color: var(--dim);
+}
+
+.acc-beats,
+.ls-beats {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.acc-beats i,
+.ls-beats i {
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--ghost); /* 4.1:1 on the lit bar, 4.7:1 on the page */
+}
+
+.acc-beats i.on,
+.ls-beats i.on {
+  background: var(--fg-soft);
+  border-color: var(--fg-soft);
+}
+
+.acc-badge .acc-stop {
+  padding: 0 2px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+/* ---- the chart ------------------------------------------------------------- */
+
+.lead-sheet .panel-head h3 {
+  font-family: var(--mono);
+}
+
+.lead-sheet .ls-stop {
+  padding: 2px 10px;
+  font-size: 11px;
+}
+
+.ls-grid {
+  flex: 1;
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 18px 24px 12px;
+  cursor: pointer;
+}
+
+.ls-row {
+  display: grid;
+  grid-template-columns: 22px repeat(4, minmax(0, 1fr));
+}
+
+.ls-row.planned {
+  animation: acc-in 600ms ease-out both;
+}
+
+.ls-section {
+  align-self: start;
+  padding-top: 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dim);
+}
+
+.ls-bar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 66px;
+  min-width: 0;
+  padding: 8px 10px;
+  /* Bar lines carry the chart's structure: --ghost clears 3:1 on the panel. */
+  border-left: 1px solid var(--ghost);
+}
+
+.ls-bar:last-child {
+  border-right: 1px solid var(--ghost);
+}
+
+/* The bar being played: a lit edge and a step up in the panel. */
+.ls-bar.now {
+  background: var(--line);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ls-bar.now.waiting {
+  box-shadow: inset 2px 0 0 var(--dim);
+}
+
+.ls-chords {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.ls-chord {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.ls-chords .ls-chord:nth-child(2) {
+  font-size: 16px;
+}
+
+.ls-hold {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--dim);
+}
+
+.ls-row.planned .ls-chord {
+  color: var(--dim);
+}
+
+/* The first bar in a new key says so: the one thing in the planned row that is not dim. */
+.ls-to {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+  white-space: nowrap;
+}
+
+.ls-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  padding: 10px 24px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.ls-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ls-ctl select {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.ls-ctl input[type='range'] {
+  width: 84px;
+}
+
+.ls-seg button {
+  padding: 1px 8px;
+  font-size: 11px;
+  text-transform: none;
+}
+
+.ls-seg button + button {
+  margin-left: -1px;
+}
+
+@media (max-width: 640px) {
+  /* The topbar wraps: the badge keeps only chord, next chord and stop. */
+  .acc-badge {
+    margin-left: 0;
+  }
+  .acc-beats,
+  .acc-bpm {
+    display: none;
+  }
+  .ls-grid {
+    padding: 12px 16px 8px;
+  }
+  .ls-row {
+    grid-template-columns: 16px repeat(4, minmax(0, 1fr));
+  }
+  .ls-bar {
+    min-height: 54px;
+    padding: 6px 6px;
+  }
+  .ls-chord {
+    font-size: 15px;
+  }
+  .ls-chords .ls-chord:nth-child(2) {
+    font-size: 13px;
+  }
+  .ls-controls {
+    padding: 8px 16px 12px;
+  }
+}
+/* ==== end accompany ========================================================== */
+
+/* The accompany badge is a quiet hint just above the chord card, outside it. */
+.card-row {
+  position: relative;
+}
+.card-row > .acc-badge {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  margin: 0;
+  min-height: 0;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* ==== motion ====================================================================
+   One vocabulary for everything that changes: what is new settles in (a short
+   fade, a few pixels of rise), controls answer the pointer in 120–160 ms, and
+   nothing bounces. Only opacity and transform move, never layout, and never the
+   canvases (live input, piano roll): they draw every frame on their own.
+   Mount animations fill `backwards` only, so once they end nothing is left
+   applied (no stray stacking context). Presence (src/ui) handles come-and-go. */
+
+:root {
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* ---- controls --------------------------------------------------------------- */
+
+button {
+  transition:
+    color 140ms var(--ease-out),
+    background-color 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+/* A press gives a little. Not on joined segments (their shared hairlines would
+   wobble), nor on controls whose box something else measures or animates. */
+button:active:not(:disabled):not(.ui-select):not(.ui-switch):not(.acc-dot):not(.seg button):not(.ls-seg button) {
+  transform: scale(0.97);
+}
+
+a {
+  transition: color 140ms var(--ease-out);
+}
+
+.acc-dot::after {
+  transition: background-color 140ms var(--ease-out);
+}
+
+/* ---- the stage -------------------------------------------------------------- */
+
+/* A mode switch remounts the workspace: the mode's controls and the stage above
+   the keys fade up together. The mode tabs and the live input stay put: they
+   are the same object in every mode. :where() keeps this at zero specificity so
+   anything with its own animation (Presence) wins. */
+:where(.sidebar > :not(.seg), .stage > :not(.live-input)) {
+  animation: stage-in 260ms var(--ease-out) backwards;
+}
+
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+/* Keyed by their text in the components: a new chord, verdict or target settles
+   in; the same one again does not move. */
+.swap-in {
+  animation: swap-in 200ms var(--ease-out) backwards;
+}
+
+@keyframes swap-in {
+  from {
+    opacity: 0.1;
+    translate: 0 3px;
+  }
+}
+
+/* Fact values and the phase chip: a quieter fade, no movement — they sit in columns. */
+.fact-in {
+  animation: fact-in 180ms var(--ease-out) backwards;
+}
+
+@keyframes fact-in {
+  from {
+    opacity: 0.2;
+  }
+}
+
+/* ---- verdicts and state colours ---------------------------------------------- */
+
+.panel,
+.prompt {
+  transition: border-color 220ms var(--ease-out);
+}
+
+.dot {
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+/* A new rep joins the log with a small pop. */
+.rep-log .rep-in {
+  animation: rep-in 200ms var(--ease-out) backwards;
+}
+
+@keyframes rep-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+/* ---- shred banners -------------------------------------------------------------
+   Presence fades them; the tempo call grows into place instead of drifting, and
+   the climb warning starts its slow pulse once it has faded in (without this,
+   Presence's single fade would replace the pulse). */
+
+.roll-announce.presence:not(.presence-out) {
+  animation-name: announce-in;
+}
+
+.roll-warn.presence:not(.presence-out) {
+  animation:
+    presence-in var(--presence-ms, 320ms) var(--ease-out) both,
+    warn-pulse 1.6s ease-in-out var(--presence-ms, 320ms) infinite;
+}
+
+/* ---- the chart ------------------------------------------------------------------ */
+
+/* The lit bar hands over to the next one instead of jumping. */
+.ls-bar {
+  transition:
+    background-color 220ms var(--ease-out),
+    box-shadow 220ms var(--ease-out);
+}
+
+.ls-beats i,
+.acc-beats i {
+  transition:
+    background-color 90ms var(--ease-out),
+    border-color 90ms var(--ease-out);
+}
+
+/* ---- reduced motion --------------------------------------------------------------
+   The rule above already stops every animation; this also makes transitions
+   instant and drops the press scale. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation: none !important;
+  }
+  button:active {
+    transform: none !important;
+  }
+}
+/* ==== end motion ================================================================ */
+
+/* ---- chord card: fixed positions ---------------------------------------------
+   The name column is anchored to the top and the name has a fixed slot, so a
+   shorter or longer reading (a voicing line, "also …", a long symbol in a smaller
+   size) only adds or removes lines below — nothing above it moves. */
+.chord-card .card-body {
+  align-items: start;
+}
+.card-name .chord-big {
+  display: flex;
+  align-items: flex-end;
+  min-height: clamp(56px, 25cqi, 124px);
+}
+.card-name .alt-names {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

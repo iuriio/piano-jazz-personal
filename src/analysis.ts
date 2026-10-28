@@ -1,8 +1,13 @@
-import { Chord, Note, Scale } from 'tonal'
+import { Chord, ChordType, Note, Scale } from 'tonal'
 import { PITCH_CLASSES_FLAT, PITCH_CLASSES_SHARP, dropMajorMarker } from './theory'
 
 // Reads whatever is held on the keyboard as a chord, for the live chord card.
 // Everything that ends up on screen is spelled for the chosen key signature.
+
+// tonal knows the minor add-eleven (madd4) but not the major one, so C E F G
+// came out as "Em♭6♭9/C". A triad with the fourth added is common enough at
+// the keyboard to deserve its name.
+if (ChordType.get('add11').empty) ChordType.add(['1P', '3M', '5P', '11P'], ['add11'], 'major add eleven')
 
 export type KeySig = { id: string; label: string; tonicPc: number; accidentals: number }
 
@@ -121,7 +126,7 @@ const KNOWN = [
   '7no5', '11', 'm11', '13', 'maj13', 'm13', '7b9', '7#9', '7#11', '7b13', '7#5', 'maj7#5',
   '9sus4', '13sus4', 'b9sus', 'maj#4', '7b5', 'alt7', '9#11', '13#11', 'maj9#11', '7#9b13',
   '7b9b13', '13b9', '13#9', '7#5#9', '7#5b9', '9no5', '13no5', 'm7add11', 'm9b5', '69#11',
-  '9b13', '9#5', 'mM9', 'Mb5', 'sus24', '7add6',
+  '9b13', '9#5', 'mM9', 'Mb5', 'sus24', '7add6', 'add11', 'madd4',
 ]
 
 function rankOf(alias: string): [number, number] {
@@ -137,6 +142,7 @@ function rankOf(alias: string): [number, number] {
 const DISPLAY_SUFFIX: Record<string, string> = {
   'm/ma7': 'mMaj7',
   'maj#4': 'maj7#11',
+  madd4: 'm(add11)',
   '6add9': '6/9',
   Mb5: '(b5)', // "Cb5" would read as C-flat
   'M#5add9': 'aug(add9)',
@@ -147,6 +153,8 @@ const DISPLAY_SUFFIX: Record<string, string> = {
 const NAMES: Record<string, string> = {
   '5': 'Open fifth',
   Madd9: 'Added ninth',
+  add11: 'Added eleventh',
+  madd4: 'Minor added eleventh',
   madd9: 'Minor added ninth',
   '6add9': 'Six-nine',
   m69: 'Minor six-nine',

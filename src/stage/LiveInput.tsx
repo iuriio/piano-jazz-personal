@@ -48,10 +48,10 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback
 }
 
-/** "#468c2b" -> "70,140,43", so alpha can vary per bar without new strings per colour. */
+/** "#347ce2" -> "52,124,226", so alpha can vary per bar without new strings per colour. */
 function rgbOf(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex)
-  if (!m) return '70,140,43'
+  if (!m) return '52,124,226'
   const n = parseInt(m[1], 16)
   return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
 }
@@ -80,7 +80,8 @@ export function LiveInput({ nameOf, marks, roll, quiet = false, title = 'Live in
     if (!wrap || !canvas || !ctx) return
 
     const layout = keyLayout(FULL_LOW, FULL_HIGH)
-    const font = cssVar('--mono', 'ui-monospace, monospace')
+    const font = cssVar('--sans', 'system-ui, sans-serif')
+    const mono = cssVar('--mono', 'ui-monospace, monospace')
     const c = {
       panel: cssVar('--panel', '#101011'),
       bg: cssVar('--bg', '#0b0b0c'),
@@ -89,15 +90,15 @@ export function LiveInput({ nameOf, marks, roll, quiet = false, title = 'Live in
       fg: cssVar('--fg', '#edede8'),
       dim: cssVar('--dim', '#8b8b83'),
       faint: cssVar('--faint', '#82827a'),
-      accent: cssVar('--accent', '#468c2b'),
-      accentDeep: cssVar('--accent-deep', '#3d7a22'),
+      accent: cssVar('--accent', '#347ce2'),
+      accentDeep: cssVar('--accent-deep', '#2a5ea8'),
       badDeep: cssVar('--bad-deep', '#c2412f'),
-      keyLit: cssVar('--key-lit', '#468c2b'),
-      keyHeld: cssVar('--key-held', '#2c4f1f'),
+      keyLit: cssVar('--key-lit', '#347ce2'),
+      keyHeld: cssVar('--key-held', '#1e3f6e'),
       white: cssVar('--key-white', '#e4e4de'),
       black: cssVar('--key-black', '#1c1c1a'),
-      missWhite: '#a9cf8e',
-      missBlack: '#2f4a22',
+      missWhite: '#a9c4ec',
+      missBlack: '#1d3355',
     }
     const accentRgb = rgbOf(c.accent)
 
@@ -168,7 +169,7 @@ export function LiveInput({ nameOf, marks, roll, quiet = false, title = 'Live in
         const vel = String(n.velocity)
         ctx.font = `700 13px ${font}`
         const nameW = ctx.measureText(name).width
-        ctx.font = `400 11px ${font}`
+        ctx.font = `400 11px ${mono}`
         const velW = ctx.measureText(vel).width
         const w = nameW + velW + 6 + 14
         const left = Math.min(Math.max(2, x - w / 2), cssW - w - 2)
@@ -196,7 +197,7 @@ export function LiveInput({ nameOf, marks, roll, quiet = false, title = 'Live in
         ctx.font = `700 13px ${font}`
         ctx.fillText(name, left + 7, y + h / 2 + 0.5)
         ctx.fillStyle = c.accent
-        ctx.font = `400 11px ${font}`
+        ctx.font = `400 11px ${mono}`
         ctx.fillText(vel, left + 7 + nameW + 6, y + h / 2 + 0.5)
       }
     }
@@ -207,7 +208,8 @@ export function LiveInput({ nameOf, marks, roll, quiet = false, title = 'Live in
         const note = lit.get(midi)
         const mark = marksNow?.get(midi)
         if (mark === 'extra') return c.badDeep
-        if (mark === 'correct') return c.accentDeep
+        // Right notes take the struck colour: it is the one that holds 3:1 on both key colours.
+        if (mark === 'correct') return c.keyLit
         // A struck key takes the accent: 3.3:1 against an unlit white key, 4.1:1
         // against an unlit black one. Pedal-held goes darker on the white keys;
         // on a black key that would sink into the key itself, so it stays lit.

@@ -1,0 +1,75 @@
+/* Shred: the transport and the Radix controls in the rig. */
+
+/* Listen / Start / Stop sit in the rep card's header, beside the phase and over
+   the big tempo: where the eye already is while playing, not down the sidebar. */
+.card-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.shred-transport {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.shred-transport button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+}
+
+.shred-transport button.primary {
+  min-width: 96px;
+  justify-content: space-between;
+}
+
+.kbd-hint {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 400;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  opacity: 0.65;
+}
+
+/* Radix controls in the sidebar rig, standing in for the native ones the rig
+   styles were written against. */
+.shred-side .rig-fields.stack .ui-select {
+  width: 100%;
+}
+
+.shred-side .tempo-slider {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.shred-side .tempo-slider .ui-slider {
+  flex: 1 1 100%;
+}
+
+.shred-side .click-volume {
+  flex: 1 1 100%;
+  white-space: nowrap;
+}
+
+.shred-side .click-volume .ui-slider {
+  flex: 1 1 auto;
+}
+
+.shred-side .shred-settings label .ui-slider {
+  width: 120px;
+}
+
+.shred-side .switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}

@@ -112,10 +112,10 @@ export function PianoRoll({
 
     const font = cssVar('--mono', 'ui-monospace, monospace')
     const rgb = {
-      right: rgbOf(cssVar('--accent', '#468c2b'), '70,140,43'),
-      left: '126,190,214', // cool blue: tells the hands apart without a legend
+      right: rgbOf(cssVar('--accent', '#347ce2'), '52,124,226'),
+      left: rgbOf(cssVar('--hand-left', '#985fe8'), '152,95,232'), // violet: tells the hands apart from the blue right
       grey: '139,139,131',
-      ok: rgbOf(cssVar('--ok', '#468c2b'), '70,140,43'),
+      ok: rgbOf(cssVar('--ok', '#347ce2'), '52,124,226'),
       early: rgbOf(cssVar('--early', '#e0a33a'), '224,163,58'),
       late: rgbOf(cssVar('--bad', '#e8705f'), '232,112,95'),
       warn: rgbOf(cssVar('--warn', '#e0a33a'), '224,163,58'),

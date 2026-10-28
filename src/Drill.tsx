@@ -4,6 +4,10 @@ import { marksFromComparison } from './keyboard'
 import { CHROMATIC, FOURTHS, type Order } from './keys'
 import { usePlay, useSettings } from './stage/settings'
 import { Workspace } from './stage/Workspace'
+import { Presence } from './ui/Presence'
+import { Swap } from './ui/Swap'
+import { Select } from './ui/Select'
+import { Switch } from './ui/Switch'
 import { clearStats, loadStats, recordAttempt, summaryFor, type Stats } from './stats'
 import { chordLabel, compareToTarget, handNotes, pitchClassName, type Spelling } from './theory'
 import { QUALITY_LABEL, VOICINGS, type Quality, voicingToMidi } from './voicings'
@@ -15,7 +19,7 @@ type Target = { rootPc: number; quality: Quality }
 
 /** The accent as a colour value: VexFlow paints with it, so a CSS var() will not do. */
 function accentInk(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#468c2b'
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#347ce2'
 }
 
 /**
@@ -34,6 +38,8 @@ export function Drill() {
   const [qualities, setQualities] = useState<Quality[]>(['m7'])
   const [order, setOrder] = useState<Order>('fourths')
   const [target, setTarget] = useState<Target>({ rootPc: 0, quality: 'm7' })
+  // Counts targets, so the symbol fades in on each new one even when it repeats.
+  const [round, setRound] = useState(0)
   const [result, setResult] = useState<'pending' | 'correct' | 'wrong'>('pending')
   const [revealed, setRevealed] = useState(false)
   const [stats, setStats] = useState<Stats>(() => loadStats())
@@ -53,6 +59,7 @@ export function Drill() {
         order === 'random' ? Math.floor(Math.random() * 12) : sequence[i % sequence.length]
       const quality = activeQualities[i % activeQualities.length]
       setTarget({ rootPc, quality })
+      setRound((n) => n + 1)
       setResult('pending')
       setRevealed(false)
       startedAtRef.current = performance.now()
@@ -118,24 +125,19 @@ export function Drill() {
             <h3>voicing</h3>
             <label className="side-row">
               <span>shape</span>
-              <select value={voicingId} onChange={(e) => setVoicingId(e.target.value)}>
-                {VOICINGS.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.label}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={voicingId}
+                onValueChange={setVoicingId}
+                options={VOICINGS.map((v) => ({ value: v.id, label: v.label }))}
+              />
             </label>
             <div className="check-list" role="group" aria-label="qualities">
               {voicing.qualities.map((q) => (
                 <label key={q} className="check-row">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={activeQualities.includes(q)}
-                    onChange={(e) =>
-                      setQualities((prev) =>
-                        e.target.checked ? [...new Set([...prev, q])] : prev.filter((x) => x !== q),
-                      )
+                    onCheckedChange={(on) =>
+                      setQualities((prev) => (on ? [...new Set([...prev, q])] : prev.filter((x) => x !== q)))
                     }
                   />
                   {QUALITY_LABEL[q]}
@@ -144,11 +146,15 @@ export function Drill() {
             </div>
             <label className="side-row">
               <span>order</span>
-              <select value={order} onChange={(e) => setOrder(e.target.value as Order)}>
-                <option value="fourths">cycle of fourths</option>
-                <option value="chromatic">chromatic</option>
-                <option value="random">random</option>
-              </select>
+              <Select
+                value={order}
+                onValueChange={(v) => setOrder(v as Order)}
+                options={[
+                  { value: 'fourths', label: 'cycle of fourths' },
+                  { value: 'chromatic', label: 'chromatic' },
+                  { value: 'random', label: 'random' },
+                ]}
+              />
             </label>
             <div className="side-buttons">
               <button onClick={advance}>skip</button>
@@ -194,16 +200,22 @@ export function Drill() {
       banner={
         <div className={`prompt ${result}`}>
           <span className="prompt-label">play</span>
-          <div className="chord-symbol">{chordLabel(target.rootPc, target.quality, spelling)}</div>
-          <div className="voicing-name">{voicing.label}</div>
-          {revealed && (
-            <p className="hand-notes">
-              LH {hands.lh.join(' ')} · RH {hands.rh.join(' ')}
-            </p>
-          )}
-          <div className="verdict">
-            {result === 'correct' ? 'right' : result === 'wrong' ? 'wrong' : '…'}
-          </div>
+          <Swap k={String(round)}>
+            <div className="chord-symbol">{chordLabel(target.rootPc, target.quality, spelling)}</div>
+          </Swap>
+          <Swap k={voicing.id}>
+            <div className="voicing-name">{voicing.label}</div>
+          </Swap>
+          <Presence ms={200}>
+            {revealed && (
+              <p className="hand-notes">
+                LH {hands.lh.join(' ')} · RH {hands.rh.join(' ')}
+              </p>
+            )}
+          </Presence>
+          <Swap k={result}>
+            <div className="verdict">{result === 'correct' ? 'right' : result === 'wrong' ? 'wrong' : '…'}</div>
+          </Swap>
         </div>
       }
       notation={{

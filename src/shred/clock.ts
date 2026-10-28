@@ -19,6 +19,10 @@ export type StartOpts = {
   countInBars: number
   /** Clicks per beat beyond the downbeat (1 = the beat only). */
   clicksPerBeat?: number
+  /** false = schedule beats without sounding the metronome (the accompaniment's own clock). */
+  clicks?: boolean
+  /** Audio-clock time of the first beat, to land on a beat predicted from your playing. */
+  startAt?: number
 }
 
 export type Beat = {
@@ -44,6 +48,7 @@ export class Transport {
   private bpm = 120
   private beatsPerBar = 4
   private clicksPerBeat = 1
+  private clicks = true
   /** Bridge between the audio clock and the performance clock, in ms. */
   private offsetMs = 0
   /** Last scheduled beats, for interpolating the current position. */
@@ -69,10 +74,12 @@ export class Transport {
     this.bpm = opts.bpm
     this.beatsPerBar = opts.beatsPerBar
     this.clicksPerBeat = opts.clicksPerBeat ?? 1
+    this.clicks = opts.clicks ?? true
     this.syncOffset()
 
     this.nextIndex = -opts.countInBars * opts.beatsPerBar
-    this.nextAudio = ctx.currentTime + 0.15 // headroom for the first scheduling pass
+    // Headroom for the first scheduling pass; a start in the past would bunch beats up.
+    this.nextAudio = Math.max(ctx.currentTime + 0.05, opts.startAt ?? ctx.currentTime + 0.15)
     this.marks = []
 
     this.tick()
@@ -114,6 +121,27 @@ export class Transport {
   /** Converts an audio-clock instant into the performance.now() epoch. */
   audioToPerf(audioTime: number): number {
     return audioTime * 1000 + this.offsetMs
+  }
+
+  /** The inverse: a performance.now() instant (a MIDI timestamp) on the audio clock. */
+  perfToAudio(perfTime: number): number {
+    if (this.offsetMs === 0) {
+      this.ensureCtx()
+      this.syncOffset()
+    }
+    return (perfTime - this.offsetMs) / 1000
+  }
+
+  /**
+   * Moves every beat not yet scheduled by `ms` (negative = earlier). Phase
+   * correction for a follower: the tempo stays, the grid slides.
+   */
+  nudge(ms: number): void {
+    if (!this.timer) return
+    const ctx = this.ctx
+    const shifted = this.nextAudio + ms / 1000
+    // Never into the past: a beat already due would fire at once and stutter.
+    this.nextAudio = ctx ? Math.max(ctx.currentTime + 0.01, shifted) : shifted
   }
 
   /** Length of one beat in ms, at the current bpm. */
@@ -170,11 +198,13 @@ export class Transport {
     const isDownbeat = beatInBar === 0
     const isCountIn = index < 0
 
-    // The count-in sounds different from the exercise, so the entry is not confusing.
-    this.click(audio, isDownbeat ? 1200 : 800, isCountIn ? 0.5 : isDownbeat ? 0.6 : 0.35)
+    if (this.clicks) {
+      // The count-in sounds different from the exercise, so the entry is not confusing.
+      this.click(audio, isDownbeat ? 1200 : 800, isCountIn ? 0.5 : isDownbeat ? 0.6 : 0.35)
 
-    for (let s = 1; s < this.clicksPerBeat; s++) {
-      this.click(audio + (s * 60) / this.bpm / this.clicksPerBeat, 1600, 0.12)
+      for (let s = 1; s < this.clicksPerBeat; s++) {
+        this.click(audio + (s * 60) / this.bpm / this.clicksPerBeat, 1600, 0.12)
+      }
     }
 
     this.marks.push({ index, audio })

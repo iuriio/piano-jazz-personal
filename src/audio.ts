@@ -6,6 +6,8 @@
 // against it. They also cost real resources: browsers cap how many a page may
 // open. So there is exactly one, created lazily.
 
+import { createFxBus, type FxBus } from './sound/fx'
+
 let ctx: AudioContext | null = null
 /** Everything audible goes through here, so one knob can duck the whole app. */
 let master: GainNode | null = null
@@ -36,6 +38,18 @@ export function getAudioContext(): AudioContext {
 export function getMasterBus(): GainNode {
   getAudioContext()
   return master!
+}
+
+let fx: FxBus | null = null
+
+/**
+ * The app-wide chorus and reverb (see sound/fx.ts), returning into the master
+ * bus. Voices connect a send gain to `chorus` or `reverb`; the dry signal still
+ * goes to its own bus. Built on first use: the impulse response costs a few ms.
+ */
+export function getFxBus(): FxBus {
+  if (!fx) fx = createFxBus(getAudioContext(), getMasterBus())
+  return fx
 }
 
 /**

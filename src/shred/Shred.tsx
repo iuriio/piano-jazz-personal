@@ -50,6 +50,12 @@ import { QWERTY_HELP, useComputerKeyboard } from './qwerty'
 import { FULL_HIGH, FULL_LOW } from '../stage/LiveInput'
 import { useSettings } from '../stage/settings'
 import { Workspace } from '../stage/Workspace'
+import { isTextEntryTarget } from '../computerPiano'
+import { Presence } from '../ui/Presence'
+import { Select } from '../ui/Select'
+import { Slider } from '../ui/Slider'
+import { Switch } from '../ui/Switch'
+import './transport.css'
 
 /**
  * Grace at each end of the rep, as a fraction of a beat. A quarter of a beat is
@@ -119,7 +125,7 @@ export function Shred() {
   const [detecting, setDetecting] = useState<{ low: number; high: number } | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [lastGrade, setLastGrade] = useState<Grade | null>(null)
-  const [repLog, setRepLog] = useState<{ bpm: number; passed: boolean }[]>([])
+  const [repLog, setRepLog] = useState<{ n: number; bpm: number; passed: boolean }[]>([])
   const [stats, setStats] = useState<ShredStats>(loadShredStats)
   const [audioError, setAudioError] = useState<string | null>(null)
   /** Big notice over the piano roll when the tempo changes. */
@@ -284,7 +290,7 @@ export function Shred() {
       // Fiddling with the keyboard for half a minute used to drop the BPM to the floor silently.
       if (!g.attempted) return
 
-      setRepLog((prev) => [...prev.slice(-11), { bpm: Math.round(bpm), passed: g.passed }])
+      setRepLog((prev) => [...prev.slice(-11), { n: (prev.at(-1)?.n ?? 0) + 1, bpm: Math.round(bpm), passed: g.passed }])
       sessionRef.current.reps += 1
       if (g.passed) {
         sessionRef.current.passed += 1
@@ -500,6 +506,45 @@ export function Shred() {
     // Switching exercise resets the ramp: the BPM of one does not apply to another.
   }, [exerciseId])
 
+  // --- space bar -------------------------------------------------------------
+  // Space starts the exercise and stops it, so the hands never leave the keys for
+  // the mouse. Listened in the capture phase on window, before anything else: a
+  // focused button (the Start you just clicked, a switch, a mode tab) would
+  // otherwise take the same Space as a click — a second toggle. Fields you type
+  // into and an open dropdown keep their Space.
+  const phaseRef = useRef(phase)
+  phaseRef.current = phase
+  const startRef = useRef(start)
+  startRef.current = start
+  useEffect(() => {
+    const isOurs = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.metaKey || e.ctrlKey || e.altKey) return false
+      if (isTextEntryTarget(e.target)) return false
+      const el = e.target instanceof Element ? e.target : null
+      return !el?.closest('[role="listbox"], [role="option"], [role="menu"], [role="dialog"]')
+    }
+    const down = (e: KeyboardEvent) => {
+      if (!isOurs(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.repeat) return
+      if (phaseRef.current === 'idle') void startRef.current()
+      else stopRef.current()
+    }
+    // A button clicks on Space's keyup, so that one is swallowed as well.
+    const up = (e: KeyboardEvent) => {
+      if (!isOurs(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', down, true)
+    window.addEventListener('keyup', up, true)
+    return () => {
+      window.removeEventListener('keydown', down, true)
+      window.removeEventListener('keyup', up, true)
+    }
+  }, [])
+
   // --- note input ------------------------------------------------------------
   const onNote = useCallback(
     (e: MidiEvent) => {
@@ -638,48 +683,51 @@ export function Shred() {
           <div className="rig-fields stack">
             <label className="wide">
               <span>Pattern</span>
-              <select value={exerciseId} onChange={(e) => persist({ exerciseId: e.target.value })}>
-                {([1, 2, 3, 4, 5] as Level[]).map((lvl) => (
-                  <optgroup key={lvl} label={LEVEL_LABEL[lvl]}>
-                    {EXERCISES.filter((e) => e.level === lvl).map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <Select
+                value={exerciseId}
+                onValueChange={(v) => persist({ exerciseId: v })}
+                options={([1, 2, 3, 4, 5] as Level[]).map((lvl) => ({
+                  group: LEVEL_LABEL[lvl],
+                  options: EXERCISES.filter((e) => e.level === lvl).map((e) => ({ value: e.id, label: e.label })),
+                }))}
+              />
             </label>
 
             <label>
               <span>Key</span>
-              <select value={rootPc} onChange={(e) => persist({ rootPc: Number(e.target.value) })}>
-                {Array.from({ length: 12 }, (_, pc) => (
-                  <option key={pc} value={pc}>
-                    {pitchClassName(pc, spelling)}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={String(rootPc)}
+                onValueChange={(v) => persist({ rootPc: Number(v) })}
+                options={Array.from({ length: 12 }, (_, pc) => ({
+                  value: String(pc),
+                  label: pitchClassName(pc, spelling),
+                }))}
+              />
             </label>
 
             <label>
               <span>Hands</span>
-              <select value={handMode} onChange={(e) => persist({ handMode: e.target.value, handModeChosen: true })}>
-                {(Object.keys(HAND_MODE_LABEL) as HandMode[]).map((h) => (
-                  <option key={h} value={h}>
-                    {HAND_MODE_LABEL[h]}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={handMode}
+                onValueChange={(v) => persist({ handMode: v, handModeChosen: true })}
+                options={(Object.keys(HAND_MODE_LABEL) as HandMode[]).map((h) => ({
+                  value: h,
+                  label: HAND_MODE_LABEL[h],
+                }))}
+              />
             </label>
 
             <label>
               <span>Order</span>
-              <select value={order} onChange={(e) => persist({ order: e.target.value })}>
-                <option value="fourths">Fourths</option>
-                <option value="chromatic">Chromatic</option>
-                <option value="random">Random</option>
-              </select>
+              <Select
+                value={order}
+                onValueChange={(v) => persist({ order: v })}
+                options={[
+                  { value: 'fourths', label: 'Fourths' },
+                  { value: 'chromatic', label: 'Chromatic' },
+                  { value: 'random', label: 'Random' },
+                ]}
+              />
             </label>
 
             <button
@@ -699,55 +747,40 @@ export function Shred() {
           <div className="rig-fields stack">
             <label>
               <span>Mode</span>
-              <select value={mode} onChange={(e) => persist({ mode: e.target.value })}>
-                {(Object.keys(MODE_LABEL) as Mode[]).map((m) => (
-                  <option key={m} value={m}>
-                    {MODE_LABEL[m]}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={mode}
+                onValueChange={(v) => persist({ mode: v })}
+                options={(Object.keys(MODE_LABEL) as Mode[]).map((m) => ({ value: m, label: MODE_LABEL[m] }))}
+              />
             </label>
 
             <label>
               <span>Strictness</span>
-              <select value={strictness} onChange={(e) => persist({ strictness: e.target.value })}>
-                {(Object.keys(STRICTNESS_LABEL) as Strictness[]).map((k) => (
-                  <option key={k} value={k}>
-                    {STRICTNESS_LABEL[k]}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={strictness}
+                onValueChange={(v) => persist({ strictness: v })}
+                options={(Object.keys(STRICTNESS_LABEL) as Strictness[]).map((k) => ({
+                  value: k,
+                  label: STRICTNESS_LABEL[k],
+                }))}
+              />
             </label>
 
             <label title="How many clean reps in a row raise the tempo. One bad rep resets the count. Set it to never to drill one tempo for as long as you like — the reps are still graded.">
               <span>Raise after</span>
-              <select
-                value={range.advanceReps}
-                onChange={(e) => persist({ advanceReps: Number(e.target.value) })}
-              >
-                <option value={1}>1 clean</option>
-                <option value={2}>2 clean</option>
-                <option value={3}>3 clean</option>
-                <option value={LOCKED}>never</option>
-              </select>
+              <Select
+                value={String(range.advanceReps)}
+                onValueChange={(v) => persist({ advanceReps: Number(v) })}
+                options={[
+                  { value: '1', label: '1 clean' },
+                  { value: '2', label: '2 clean' },
+                  { value: '3', label: '3 clean' },
+                  { value: String(LOCKED), label: 'never' },
+                ]}
+              />
             </label>
           </div>
         </section>
-
-        <div className="rig-transport">
-          {phase === 'idle' ? (
-            <>
-              <button onClick={listen}>Listen</button>
-              <button className="primary" onClick={start}>
-                Start
-              </button>
-            </>
-          ) : (
-            <button className="primary" onClick={stop}>
-              Stop
-            </button>
-          )}
-        </div>
       </div>
 
       <div className="rig">
@@ -780,13 +813,12 @@ export function Shred() {
                 </button>
               </span>
               <label className="tempo-slider">
-                <input
-                  type="range"
+                <Slider
                   min={range.minBpm}
                   max={Math.max(DEFAULT_RAMP.maxBpm, exercise.tempos.target)}
                   step={1}
                   value={ramp.bpm}
-                  onChange={(e) => setTempo(Number(e.target.value))}
+                  onValueChange={setTempo}
                   aria-label="tempo"
                 />
                 <span className="dim">
@@ -817,40 +849,40 @@ export function Shred() {
           <div className="rig-fields audio-row">
             <label className="click-volume" title="Click volume. Does not affect the piano.">
               click {Math.round(range.clickVolume * 100)}%
-              <input
-                type="range"
+              <Slider
                 min={0}
                 max={100}
                 step={5}
                 value={Math.round(range.clickVolume * 100)}
-                onChange={(e) => {
-                  const v = Number(e.target.value) / 100
+                onValueChange={(n) => {
+                  const v = n / 100
                   persist({ clickVolume: v })
                   transportRef.current?.setVolume(v)
                 }}
+                aria-label="click volume"
               />
             </label>
 
-            <label
+            {/* The slider sits outside the label: a click on its track would
+                otherwise count as a click on the label and flip the switch. */}
+            <div
               className="click-volume"
               title="The piano plays the exercise along with you, rep after rep — not only in Listen."
             >
-              <input
-                type="checkbox"
-                checked={range.guide}
-                onChange={(e) => persist({ guide: e.target.checked })}
-              />
-              guide {Math.round(range.guideVolume * 100)}%
-              <input
-                type="range"
+              <label className="switch-label">
+                <Switch checked={range.guide} onCheckedChange={(on) => persist({ guide: on })} />
+                guide {Math.round(range.guideVolume * 100)}%
+              </label>
+              <Slider
                 min={0}
                 max={100}
                 step={5}
                 value={Math.round(range.guideVolume * 100)}
                 disabled={!range.guide}
-                onChange={(e) => persist({ guideVolume: Number(e.target.value) / 100 })}
+                onValueChange={(n) => persist({ guideVolume: n / 100 })}
+                aria-label="guide volume"
               />
-            </label>
+            </div>
           </div>
         </section>
       </div>
@@ -906,25 +938,21 @@ export function Shred() {
           )}
           <label title="Subtracted from the instant of each note. Raise it until the grid deviation drops.">
             latency {range.latencyMs}ms
-            <input
-              type="range"
+            <Slider
               min={-50}
               max={200}
               step={5}
               value={range.latencyMs}
-              onChange={(e) => persist({ latencyMs: Number(e.target.value) })}
+              onValueChange={(n) => persist({ latencyMs: n })}
+              aria-label="input latency"
             />
           </label>
-          <label title="Finger number on each note of the piano roll.">
-            <input
-              type="checkbox"
-              checked={range.showFingers}
-              onChange={(e) => persist({ showFingers: e.target.checked })}
-            />
+          <label className="switch-label" title="Finger number on each note of the piano roll.">
+            <Switch checked={range.showFingers} onCheckedChange={(on) => persist({ showFingers: on })} />
             fingering
           </label>
-          <label>
-            <input type="checkbox" checked={qwerty} onChange={(e) => persist({ qwerty: e.target.checked })} />
+          <label className="switch-label">
+            <Switch checked={qwerty} onCheckedChange={(on) => persist({ qwerty: on })} />
             computer keyboard
           </label>
         </div>
@@ -980,10 +1008,12 @@ export function Shred() {
       }
       roll={
       <div className="roll-stack">
-        {announce && <div className={`roll-announce ${announce.kind}`}>{announce.text}</div>}
-        {!announce && aboutToClimb && (
-          <div className="roll-warn">a clean rep here climbs to {targets.up} BPM</div>
-        )}
+        <Presence ms={300}>
+          {announce && <div className={`roll-announce ${announce.kind}`}>{announce.text}</div>}
+        </Presence>
+        <Presence ms={300}>
+          {!announce && aboutToClimb && <div className="roll-warn">a clean rep here climbs to {targets.up} BPM</div>}
+        </Presence>
         <PianoRoll
           expected={expansion.notes}
           low={FULL_LOW}
@@ -1009,6 +1039,18 @@ export function Shred() {
           repLog={repLog}
           progress={progress}
           noteDiff={noteDiff}
+          transport={
+            <div className="shred-transport" role="group" aria-label="transport">
+              {phase === 'idle' && <button onClick={listen}>Listen</button>}
+              {/* One element for Start and Stop, so a click keeps focus on it. */}
+              <button className="primary" onClick={phase === 'idle' ? start : stop} aria-keyshortcuts="Space">
+                {phase === 'idle' ? 'Start' : 'Stop'}
+                <kbd className="kbd-hint" aria-hidden="true">
+                  space
+                </kbd>
+              </button>
+            </div>
+          }
         />
       }
       aside={

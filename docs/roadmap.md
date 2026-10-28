@@ -42,6 +42,7 @@ Status: `done` · `wip` · `next` · `later` · `out` (deliberately left out).
 | Feature | Notes | Status |
 | --- | --- | --- |
 | Harmonise | Each melody note you play gets a chord under it: key + major/minor, functional (in key) or non-functional, chord vocabulary (all / fewer notes / more notes / jazz), vary repeated notes | next |
+| Accompany me | Listens in the background (key, pulse, swing); a quiet offer next to the brand; once accepted, plays soft piano + bass in time and shows an iReal-style bar grid of what comes next (in the notation slot). Tempo follows you or locks; complexity simple ↔ rich. Locks to shred's transport over exercises | wip |
 | Voicing | Tight ↔ open spread (close → drop voicings), lowest allowed note | next |
 | Dynamics | Velocity for computer-keyboard notes and for generated chords, each with humanise | next |
 | Record take | Tempo, metronome (monitor only), record, export .mid | next |

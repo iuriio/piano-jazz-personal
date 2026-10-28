@@ -1,5 +1,8 @@
+import type { ReactNode } from 'react'
+import { Presence } from '../ui/Presence'
 import type { Grade } from './grade'
 import type { RollPhase } from './PianoRoll'
+import { Swap } from '../ui/Swap'
 
 // The shred verdict, where the chord card sits in free play: big, central, and
 // readable from the corner of your eye while your hands are busy. What used to
@@ -9,11 +12,14 @@ type Props = {
   phase: RollPhase
   bpm: number
   grade: Grade | null
-  repLog: { bpm: number; passed: boolean }[]
+  /** `n` counts reps since the log was cleared: the key that fades a new one in. */
+  repLog: { n?: number; bpm: number; passed: boolean }[]
   /** "1 more clean rep → 90 BPM", or the lock / accel note. Already worded. */
   progress: { text: string; dots: { on: number; total: number; kind: 'up' | 'down' } | null }
   /** Missing / extra note names for the last rep, already spelled. */
   noteDiff: string | null
+  /** Listen / Start / Stop, in the header beside the tempo, where the eye is. */
+  transport?: ReactNode
 }
 
 const STATUS: Record<RollPhase, string> = {
@@ -24,7 +30,7 @@ const STATUS: Record<RollPhase, string> = {
   demo: 'listening',
 }
 
-export function TrainingCard({ phase, bpm, grade, repLog, progress, noteDiff }: Props) {
+export function TrainingCard({ phase, bpm, grade, repLog, progress, noteDiff, transport }: Props) {
   // The verdict of the last rep stays up while the next one runs: it is what
   // you are correcting for.
   const verdict = grade ? (grade.passed ? 'clean' : 'not yet') : STATUS[phase]
@@ -51,7 +57,12 @@ export function TrainingCard({ phase, bpm, grade, repLog, progress, noteDiff }: 
     <section className={`panel training-card ${tone}`}>
       <header className="panel-head">
         <h3>rep</h3>
-        <span className={`phase-chip ${phase}`}>{STATUS[phase]}</span>
+        <div className="card-head-right">
+          <Swap as="span" k={phase}>
+            <span className={`phase-chip ${phase}`}>{STATUS[phase]}</span>
+          </Swap>
+          {transport}
+        </div>
       </header>
 
       <div className="card-body">
@@ -60,7 +71,9 @@ export function TrainingCard({ phase, bpm, grade, repLog, progress, noteDiff }: 
             {bpm}
             <span className="unit">bpm</span>
           </div>
-          <div className={`verdict-big ${tone}`}>{verdict}</div>
+          <Swap k={verdict}>
+            <div className={`verdict-big ${tone}`}>{verdict}</div>
+          </Swap>
           <div className="ramp-line">
             {progress.dots && (
               <span className={`dots ${progress.dots.kind}`}>
@@ -77,29 +90,37 @@ export function TrainingCard({ phase, bpm, grade, repLog, progress, noteDiff }: 
           {facts.map(([k, v, cls]) => (
             <div key={k}>
               <dt>{k}</dt>
-              <dd className={cls}>{v}</dd>
+              <dd className={cls || undefined}>
+                <Swap as="span" k={v}>
+                  {v}
+                </Swap>
+              </dd>
             </div>
           ))}
         </dl>
       </div>
 
-      {(grade && !grade.passed && grade.reasons.length > 0) || noteDiff ? (
-        <p className="card-reasons">
-          {grade && !grade.passed && grade.reasons.join(' · ')}
-          {grade && !grade.passed && grade.reasons.length > 0 && noteDiff ? ' · ' : ''}
-          {noteDiff}
-        </p>
-      ) : null}
+      <Presence ms={240}>
+        {Boolean((grade && !grade.passed && grade.reasons.length > 0) || noteDiff) && (
+          <p className="card-reasons">
+            {grade && !grade.passed && grade.reasons.join(' · ')}
+            {grade && !grade.passed && grade.reasons.length > 0 && noteDiff ? ' · ' : ''}
+            {noteDiff}
+          </p>
+        )}
+      </Presence>
 
-      {repLog.length > 0 && (
-        <div className="rep-log">
-          {repLog.map((r, i) => (
-            <span key={i} className={r.passed ? 'ok' : 'fail'} title={`${r.bpm} BPM`}>
-              {r.bpm}
-            </span>
-          ))}
-        </div>
-      )}
+      <Presence ms={240}>
+        {repLog.length > 0 && (
+          <div className="rep-log">
+            {repLog.map((r, i) => (
+              <span key={r.n ?? i} className={`rep-in ${r.passed ? 'ok' : 'fail'}`} title={`${r.bpm} BPM`}>
+                {r.bpm}
+              </span>
+            ))}
+          </div>
+        )}
+      </Presence>
     </section>
   )
 }

@@ -1,0 +1,353 @@
+/* Radix primitives in the app's look: square, hairline borders, accent for state. */
+
+.ui-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.ui-select > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-select:hover {
+  border-color: var(--dim);
+}
+.ui-select:focus-visible,
+.ui-select[data-state='open'] {
+  outline: none;
+  border-color: var(--accent);
+}
+.ui-select[data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-select-icon {
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.ui-select-content {
+  z-index: 100;
+  min-width: var(--radix-select-trigger-width);
+  max-height: min(360px, var(--radix-select-content-available-height));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  font-family: var(--sans);
+  font-size: 13px;
+  overflow: hidden;
+}
+.ui-select-viewport {
+  padding: 4px;
+}
+.ui-select-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 6px 28px 6px 8px;
+  color: var(--fg-soft, var(--fg));
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.ui-select-item[data-highlighted] {
+  background: var(--line);
+  color: var(--fg);
+}
+.ui-select-item[data-state='checked'] {
+  color: var(--accent-bright);
+}
+.ui-select-item[data-disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+.ui-select-check {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
+}
+.ui-select-label {
+  padding: 8px 8px 4px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ghost, var(--dim));
+}
+.ui-select-scroll {
+  display: flex;
+  justify-content: center;
+  padding: 2px;
+  color: var(--dim);
+  font-size: 10px;
+}
+
+.ui-slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 18px;
+  min-width: 60px;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+.ui-slider[data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-slider-track {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+}
+.ui-slider-range {
+  position: absolute;
+  height: 100%;
+  background: var(--accent);
+}
+.ui-slider-thumb {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: var(--fg);
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+}
+.ui-slider-thumb:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}
+
+.ui-switch {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  background: var(--line);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.ui-switch[data-state='checked'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ui-switch[data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.ui-switch:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}
+.ui-switch-thumb {
+  display: block;
+  width: 10px;
+  height: 10px;
+  background: var(--fg);
+  border-radius: 50%;
+  transform: translateX(2px);
+  transition: transform 120ms;
+}
+.ui-switch[data-state='checked'] .ui-switch-thumb {
+  transform: translateX(14px);
+  background: var(--bg);
+}
+
+.side-row .ui-select {
+  width: 100%;
+}
+
+/* The sidebar styles its row labels as small caps; the value inside a control is not a label. */
+.ui-select span {
+  font-size: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+}
+
+/* Sizes the old native controls had in each place. */
+.grp .ui-select {
+  font-size: 12px;
+}
+.grp .ui-slider {
+  width: 72px;
+}
+.statusbar .ui-select,
+.ls-ctl .ui-select {
+  font-size: 11px;
+  padding: 2px 4px;
+}
+.ls-ctl .ui-select {
+  font-size: 12px;
+}
+.ls-ctl .ui-slider {
+  width: 84px;
+}
+/* The logo bar and footer are in mono; their dropdown lists follow. */
+.topbar .ui-select,
+.statusbar .ui-select {
+  font-family: var(--mono);
+}
+
+/* ==== motion: the Radix controls ==== */
+
+.ui-select {
+  transition:
+    border-color 140ms ease-out,
+    color 140ms ease-out;
+}
+.ui-select-icon {
+  transition: transform 160ms ease-out, color 140ms ease-out;
+}
+.ui-select[data-state='open'] .ui-select-icon {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+/* The list grows out of the trigger: a short fade with a 4 px drift from the
+   side it opens on, and back the same way, faster, when it closes. */
+.ui-select-content {
+  transform-origin: var(--radix-select-content-transform-origin);
+  will-change: opacity, transform;
+}
+.ui-select-content[data-state='open'] {
+  animation: ui-pop-in 160ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.ui-select-content[data-state='closed'] {
+  animation: ui-pop-out 110ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.ui-select-content[data-side='bottom'] {
+  --pop-dy: -4px;
+}
+.ui-select-content[data-side='top'] {
+  --pop-dy: 4px;
+}
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--pop-dy, -4px)) scale(0.98);
+  }
+}
+@keyframes ui-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--pop-dy, -4px)) scale(0.98);
+  }
+}
+.ui-select-item {
+  transition:
+    background-color 100ms ease-out,
+    color 100ms ease-out;
+}
+
+/* Slider: the thumb grows a little under the pointer and holds a ring while dragged. */
+.ui-slider-thumb {
+  transition:
+    transform 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+.ui-slider:not([data-disabled]):hover .ui-slider-thumb {
+  transform: scale(1.15);
+}
+.ui-slider-thumb:active {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* Switch: the track takes its colour as the thumb slides. */
+.ui-switch {
+  transition:
+    background-color 160ms ease-out,
+    border-color 160ms ease-out;
+}
+.ui-switch-thumb {
+  transition:
+    transform 160ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    background-color 160ms ease-out;
+}
+
+/* ==== end motion: the Radix controls ==== */
+
+/* Presence: things that come and go fade and drift a few pixels instead of popping. */
+.presence {
+  animation-name: presence-in;
+  animation-duration: var(--presence-ms, 320ms);
+  animation-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+  animation-fill-mode: both;
+  animation-iteration-count: 1;
+}
+.presence.presence-out {
+  animation-name: presence-out;
+  animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
+  pointer-events: none;
+}
+@keyframes presence-in {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+@keyframes presence-out {
+  to {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence {
+    animation-name: none;
+  }
+}
+
+/* Swap: changing text crossfades in place (old out, new in, same cell), no blink. */
+.swap {
+  display: grid;
+}
+span.swap {
+  display: inline-grid;
+}
+.swap > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.swap-new {
+  animation: swap-fade-in var(--swap-ms, 140ms) ease-out both;
+}
+.swap-out {
+  animation: swap-fade-out var(--swap-ms, 140ms) ease-in both;
+  pointer-events: none;
+}
+@keyframes swap-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes swap-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .swap-out {
+    display: none;
+  }
+  .swap-new {
+    animation: none;
+  }
+}
