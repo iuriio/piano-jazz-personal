@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Keyboard, type KeyMark } from '../Keyboard'
+import { keyById } from '../analysis'
+import { type KeyMark } from '../keyboard'
 import { rootAt, type Order } from '../keys'
 import { useMidiEvents, type MidiEvent } from '../midi'
 import { midiToName, pitchClassName, type Spelling } from '../theory'
@@ -18,6 +19,7 @@ import {
 import { grade, type Grade, type PlayedNote } from './grade'
 import { HAND_MODE_LABEL, applyHandMode, expandPattern, type HandMode } from './pattern'
 import { PianoRoll, type PlayedMark } from './PianoRoll'
+import { TrainingCard } from './TrainingCard'
 import {
   ABS_MIN_BPM,
   DEFAULT_RAMP,
@@ -45,6 +47,9 @@ import {
   type ShredStats,
 } from './shredStats'
 import { QWERTY_HELP, useComputerKeyboard } from './qwerty'
+import { FULL_HIGH, FULL_LOW } from '../stage/LiveInput'
+import { useSettings } from '../stage/settings'
+import { Workspace } from '../stage/Workspace'
 
 /**
  * Grace at each end of the rep, as a fraction of a beat. A quarter of a beat is
@@ -78,22 +83,11 @@ type Phase = 'idle' | 'countin' | 'playing' | 'resting' | 'demo'
 
 const ORDERS = ['fourths', 'chromatic', 'random'] as const
 const MODES = ['ladder', 'burst', 'accel', 'free'] as const
-const HAND_MODES = ['as-is', 'rh', 'lh', 'both'] as const
+const HAND_MODES = ['rh', 'lh', 'both', 'as-is'] as const
 
 /** A saved value that no longer exists (old version, edited storage) falls back to the default. */
 function pick<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
   return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : fallback
-}
-
-/** How many reps already count toward the next tempo step. */
-function Dots({ on, total }: { on: number; total: number }) {
-  return (
-    <span className="dots" aria-label={`${on} of ${total}`}>
-      {Array.from({ length: total }, (_, i) => (
-        <span key={i} className={i < on ? 'dot on' : 'dot'} />
-      ))}
-    </span>
-  )
 }
 
 /** Short list of pitches, without dumping 60 names into the bar. */
@@ -103,9 +97,11 @@ function noteNames(midi: number[], spelling: Spelling): string {
   return unique.length > 6 ? `${shown} +${unique.length - 6}` : shown
 }
 
-type Props = { spelling: Spelling }
+export function Shred() {
+  const { settings } = useSettings()
+  // Shred's note names take a flat/sharp preference; the page key decides it.
+  const spelling: Spelling = keyById(settings.keyId).accidentals > 0 ? 'sharp' : 'flat'
 
-export function Shred({ spelling }: Props) {
   // Everything you pick is saved: reloading the page must not cost you rebuilding
   // the whole setup. Storage keeps it raw and validation happens here, so a
   // renamed exercise falls back to the default instead of breaking.
@@ -118,11 +114,10 @@ export function Shred({ spelling }: Props) {
   const rootPc = range.rootPc
   const order = pick(range.order, ORDERS, 'fourths')
   const mode = pick(range.mode, MODES, 'ladder')
-  const handMode = pick(range.handMode, HAND_MODES, 'as-is')
+  const handMode = pick(range.handMode, HAND_MODES, 'rh')
   const qwerty = range.qwerty
   const [detecting, setDetecting] = useState<{ low: number; high: number } | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
-  const [held, setHeld] = useState<number[]>([])
   const [lastGrade, setLastGrade] = useState<Grade | null>(null)
   const [repLog, setRepLog] = useState<{ bpm: number; passed: boolean }[]>([])
   const [stats, setStats] = useState<ShredStats>(loadShredStats)
@@ -509,7 +504,6 @@ export function Shred({ spelling }: Props) {
   const onNote = useCallback(
     (e: MidiEvent) => {
       if (e.kind === 'off') {
-        setHeld((prev) => prev.filter((n) => n !== e.note))
         // Closes the last open note at this pitch, to measure legato/detached.
         for (let i = playedRef.current.length - 1; i >= 0; i--) {
           const p = playedRef.current[i]
@@ -520,8 +514,6 @@ export function Shred({ spelling }: Props) {
         }
         return
       }
-
-      setHeld((prev) => (prev.includes(e.note) ? prev : [...prev, e.note]))
 
       setDetecting((d) =>
         d ? { low: Math.min(d.low, e.note), high: Math.max(d.high, e.note) } : d,
@@ -550,7 +542,7 @@ export function Shred({ spelling }: Props) {
   )
 
   useMidiEvents(onNote)
-  useComputerKeyboard(qwerty, onNote, Math.max(range.low, 48))
+  useComputerKeyboard(qwerty, Math.max(range.low, 48))
 
   /**
    * Tempo set by hand. Resets the streaks: if you have just changed the tempo, the
@@ -593,9 +585,8 @@ export function Shred({ spelling }: Props) {
   const marks = useMemo(() => {
     const m = new Map<number, KeyMark>()
     for (const n of expansion.notes) m.set(n.midi, 'missing')
-    for (const n of held) m.set(n, 'held')
     return m
-  }, [expansion, held])
+  }, [expansion])
 
   const pr = prFor(stats, exercise.id, rootPc)
   const best = bestPrFor(stats, exercise.id)
@@ -610,8 +601,37 @@ export function Shred({ spelling }: Props) {
     (phase === 'playing' || phase === 'countin') &&
     ramp.cleanStreak === rampConfig.repsToAdvance - 1
 
+  const progress: { text: string; dots: { on: number; total: number; kind: 'up' | 'down' } | null } =
+    mode === 'accel'
+      ? { text: 'the curve sets the tempo', dots: null }
+      : mode === 'free'
+        ? { text: 'free tempo — nothing moves it', dots: null }
+        : tempoLocked
+          ? { text: `locked at ${ramp.bpm} — still graded`, dots: null }
+          : ramp.failStreak > 0
+            ? {
+                text: `${DEFAULT_RAMP.repsToRetreat - ramp.failStreak} more miss → ${targets.down}`,
+                dots: { on: ramp.failStreak, total: DEFAULT_RAMP.repsToRetreat, kind: 'down' },
+              }
+            : {
+                text: `${rampConfig.repsToAdvance - ramp.cleanStreak} more clean → ${targets.up}`,
+                dots: { on: ramp.cleanStreak, total: rampConfig.repsToAdvance, kind: 'up' },
+              }
+
+  const noteDiff =
+    lastGrade && (lastGrade.missedNotes.length > 0 || lastGrade.extraNotes.length > 0)
+      ? [
+          lastGrade.missedNotes.length > 0 ? `missing ${noteNames(lastGrade.missedNotes, spelling)}` : '',
+          lastGrade.extraNotes.length > 0 ? `extra ${noteNames(lastGrade.extraNotes, spelling)}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : null
+
   return (
-    <div className="shred">
+    <Workspace
+      sidebar={
+        <div className="shred-side">
       <div className="rig">
         <section className="rig-group">
           <h3>Exercise</h3>
@@ -644,7 +664,7 @@ export function Shred({ spelling }: Props) {
 
             <label>
               <span>Hands</span>
-              <select value={handMode} onChange={(e) => persist({ handMode: e.target.value })}>
+              <select value={handMode} onChange={(e) => persist({ handMode: e.target.value, handModeChosen: true })}>
                 {(Object.keys(HAND_MODE_LABEL) as HandMode[]).map((h) => (
                   <option key={h} value={h}>
                     {HAND_MODE_LABEL[h]}
@@ -727,28 +747,6 @@ export function Shred({ spelling }: Props) {
               Stop
             </button>
           )}
-        </div>
-      </div>
-
-      <div className="exercise-head">
-        <div>
-          <span className="badge">{FAMILY_LABEL[exercise.family]}</span>
-          <span className="badge">{LEVEL_LABEL[exercise.level]}</span>
-          <strong>{exercise.label}</strong> in {pitchClassName(rootPc, spelling)}
-          <span className="focus"> · {exercise.focus}</span>
-          {handMode !== 'as-is' && (
-            <span className="badge override">{HAND_MODE_LABEL[handMode]}</span>
-          )}
-        </div>
-        <div className="tempo">
-          {/* In accel the curve controls the tempo, so there is nothing to set —
-              the reading lives here. Otherwise the picker sits in the Tempo group. */}
-          {mode === 'accel' && <span className={`bpm ${phase}`}>{bpmNow} BPM</span>}
-          <span className="dim">
-            target {exercise.tempos.target} · {repBars} bar{repBars > 1 ? 's' : ''} per rep
-          </span>
-          {best > 0 && <span className="pr"> record {best}</span>}
-          {pr && <span className="dim"> ({pitchClassName(rootPc, spelling)}: {pr.bpm})</span>}
         </div>
       </div>
 
@@ -862,34 +860,6 @@ export function Shred({ spelling }: Props) {
         {' '}
         {STRICTNESS_HELP[strictness]}
       </p>
-      {mode !== 'accel' && mode !== 'free' && tempoLocked && (
-        <p className="ramp-progress locked">
-          tempo locked at <strong>{ramp.bpm}</strong> BPM — reps are still graded, the
-          ladder just does not move
-        </p>
-      )}
-      {mode !== 'accel' && mode !== 'free' && !tempoLocked && (
-        <p className={`ramp-progress ${ramp.failStreak > 0 ? 'down' : 'up'}`}>
-          {ramp.failStreak > 0 ? (
-            <>
-              <Dots on={ramp.failStreak} total={DEFAULT_RAMP.repsToRetreat} />
-              {' '}
-              {DEFAULT_RAMP.repsToRetreat - ramp.failStreak} more failure
-              {DEFAULT_RAMP.repsToRetreat - ramp.failStreak > 1 ? 's' : ''} and it drops to{' '}
-              <strong>{targets.down}</strong> BPM
-            </>
-          ) : (
-            <>
-              <Dots on={ramp.cleanStreak} total={rampConfig.repsToAdvance} />
-              {' '}
-              {rampConfig.repsToAdvance - ramp.cleanStreak} more clean
-              {rampConfig.repsToAdvance - ramp.cleanStreak > 1 ? ' reps' : ' rep'} and it climbs to{' '}
-              <strong>{targets.up}</strong> BPM
-            </>
-          )}
-        </p>
-      )}
-
       <p className="limits">
         This rep passes with up to{' '}
         <strong>
@@ -906,103 +876,6 @@ export function Shred({ spelling }: Props) {
           <> · timing measured only, does not fail you</>
         )}
       </p>
-      {expansion.warning && <p className="warn">{expansion.warning}</p>}
-      {audioError && <p className="error">{audioError}</p>}
-
-      <div className="roll-stack">
-        {announce && <div className={`roll-announce ${announce.kind}`}>{announce.text}</div>}
-        {!announce && aboutToClimb && (
-          <div className="roll-warn">a clean rep here climbs to {targets.up} BPM</div>
-        )}
-        <PianoRoll
-          expected={expansion.notes}
-          low={range.low}
-          high={range.high}
-          getPosition={getPosition}
-          getPlayed={getPlayed}
-          beatsPerBar={exercise.beatsPerBar}
-          cycleBeats={cycleBeats}
-          showFingers={range.showFingers}
-          active={phase === 'playing'}
-        />
-        <Keyboard marks={marks} low={range.low} high={range.high} showNoteNames={false} />
-      </div>
-
-      <div className={`verdict-bar ${phase} ${lastGrade ? (lastGrade.passed ? 'ok' : 'fail') : ''}`}>
-        {phase === 'demo' && <span>listening — the piano plays, you just watch</span>}
-        {phase === 'countin' && <span>counting in...</span>}
-        {phase === 'resting' && <span>rest — let the hand go loose</span>}
-        {phase === 'playing' && !lastGrade && <span>playing</span>}
-        {lastGrade && (
-          <>
-            <strong>{lastGrade.passed ? 'clean' : 'not yet'}</strong>
-            <span className="metric" title="right notes in order">
-              {Math.round(lastGrade.accuracy * 100)}% right
-            </span>
-            <span className="metric" title="coefficient of variation of the inter-onset intervals">
-              evenness {(lastGrade.ioiCv * 100).toFixed(1)}%
-            </span>
-            <span className="metric">{Math.round(lastGrade.effectiveBpm)} BPM actual</span>
-            {lastGrade.handSpreadMs > 0 && (
-              <span className="metric" title="how far apart the two hands land">
-                hands {lastGrade.handSpreadMs.toFixed(0)}ms
-              </span>
-            )}
-            <span className="metric" title="attack unevenness — a light keyboard makes this worse">
-              attack ±{lastGrade.velocityStdev.toFixed(0)}
-            </span>
-            <span className="metric" title="mean distance from the click. If it is large and constant, adjust the latency under Keyboard and input.">
-              grid {lastGrade.gridMadMs.toFixed(0)}ms
-            </span>
-          </>
-        )}
-        {lastGrade && !lastGrade.passed && (
-          <span className="reasons">{lastGrade.reasons.join(' · ')}</span>
-        )}
-        {lastGrade && (lastGrade.missedNotes.length > 0 || lastGrade.extraNotes.length > 0) && (
-          <span className="note-diff">
-            {lastGrade.missedNotes.length > 0 && (
-              <>missing {noteNames(lastGrade.missedNotes, spelling)}</>
-            )}
-            {lastGrade.missedNotes.length > 0 && lastGrade.extraNotes.length > 0 && ' · '}
-            {lastGrade.extraNotes.length > 0 && <>extra {noteNames(lastGrade.extraNotes, spelling)}</>}
-          </span>
-        )}
-      </div>
-
-      {repLog.length > 0 && (
-        <div className="rep-log">
-          {repLog.map((r, i) => (
-            <span key={i} className={r.passed ? 'ok' : 'fail'} title={`${r.bpm} BPM`}>
-              {r.bpm}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <p className="exercise-note">{exercise.note}</p>
-
-      {worst.length > 0 && (
-        <div className="diagnosis">
-          <h3>Where you fumble</h3>
-          <p className="dim">
-            Mean deviation per note, accumulated over your passes through this exercise.
-          </p>
-          <ul>
-            {worst.map((w) => {
-              const target = expansion.notes.find((n) => n.group === w.index)
-              return (
-                <li key={w.index}>
-                  note {w.index + 1}
-                  {target && ` (${midiToName(target.midi, spelling)}${target.finger ? `, finger ${target.finger}` : ''})`}
-                  : ±{w.devMs.toFixed(0)}ms
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
       <details className="shred-settings">
         <summary>Keyboard and input</summary>
         <div className="controls">
@@ -1074,6 +947,101 @@ export function Shred({ spelling }: Props) {
           reset
         </button>
       </div>
-    </div>
+        </div>
+      }
+      banner={
+        <div className="shred-banner">
+      <div className="exercise-head">
+        <div>
+          <span className="badge">{FAMILY_LABEL[exercise.family]}</span>
+          <span className="badge">{LEVEL_LABEL[exercise.level]}</span>
+          <strong>{exercise.label}</strong> in {pitchClassName(rootPc, spelling)}
+          <span className="focus"> · {exercise.focus}</span>
+          {handMode !== 'as-is' && (
+            <span className="badge override">{HAND_MODE_LABEL[handMode]}</span>
+          )}
+        </div>
+        <div className="tempo">
+          {/* In accel the curve controls the tempo, so there is nothing to set —
+              the reading lives here. Otherwise the picker sits in the Tempo group. */}
+          {mode === 'accel' && <span className={`bpm ${phase}`}>{bpmNow} BPM</span>}
+          <span className="dim">
+            target {exercise.tempos.target} · {repBars} bar{repBars > 1 ? 's' : ''} per rep
+          </span>
+          {best > 0 && <span className="pr"> record {best}</span>}
+          {pr && <span className="dim"> ({pitchClassName(rootPc, spelling)}: {pr.bpm})</span>}
+        </div>
+      </div>
+
+      {expansion.warning && <p className="warn">{expansion.warning}</p>}
+      {audioError && <p className="error">{audioError}</p>}
+
+        </div>
+      }
+      roll={
+      <div className="roll-stack">
+        {announce && <div className={`roll-announce ${announce.kind}`}>{announce.text}</div>}
+        {!announce && aboutToClimb && (
+          <div className="roll-warn">a clean rep here climbs to {targets.up} BPM</div>
+        )}
+        <PianoRoll
+          expected={expansion.notes}
+          low={FULL_LOW}
+          high={FULL_HIGH}
+          getPosition={getPosition}
+          getPlayed={getPlayed}
+          beatsPerBar={exercise.beatsPerBar}
+          cycleBeats={cycleBeats}
+          showFingers={range.showFingers}
+          phase={phase}
+          fumbleGroups={worst.map((w) => w.index)}
+        />
+      </div>
+
+      }
+      quiet
+      marks={marks}
+      card={
+        <TrainingCard
+          phase={phase}
+          bpm={bpmNow}
+          grade={lastGrade}
+          repLog={repLog}
+          progress={progress}
+          noteDiff={noteDiff}
+        />
+      }
+      aside={
+        <section className="panel coach">
+          <header className="panel-head">
+            <h3>coach</h3>
+            <span className="panel-meta">
+              {best > 0 ? `record ${best} bpm` : 'no record yet'}
+            </span>
+          </header>
+          <p className="coach-note">{exercise.note}</p>
+          {worst.length > 0 && (
+            <div className="coach-fumble">
+              <h4>where you fumble</h4>
+              <ul>
+                {worst.map((w) => {
+                  const target = expansion.notes.find((n) => n.group === w.index)
+                  return (
+                    <li key={w.index}>
+                      <span className="fumble-note">
+                        {target ? midiToName(target.midi, spelling) : `note ${w.index + 1}`}
+                      </span>
+                      {target?.finger && <span className="dim"> finger {target.finger}</span>}
+                      <span className="fumble-dev">±{w.devMs.toFixed(0)}ms</span>
+                    </li>
+                  )
+                })}
+              </ul>
+              <p className="dim">ringed in amber on the roll</p>
+            </div>
+          )}
+        </section>
+      }
+    />
   )
 }

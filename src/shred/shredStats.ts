@@ -151,6 +151,12 @@ export type ShredSettings = {
   exerciseId: string
   rootPc: number
   handMode: string
+  /**
+   * Set once the player picks the hands themselves. Until then the exercise opens
+   * with one hand: both hands is a choice, not where practice starts — and older
+   * builds saved their 'as-is' default, which this lets us tell apart from a pick.
+   */
+  handModeChosen: boolean
   order: string
   mode: string
   qwerty: boolean
@@ -178,7 +184,8 @@ export const DEFAULT_SETTINGS: ShredSettings = {
   advanceReps: 2,
   exerciseId: '',
   rootPc: 0,
-  handMode: 'as-is',
+  handMode: 'rh',
+  handModeChosen: false,
   order: 'fourths',
   mode: 'ladder',
   qwerty: false,
@@ -217,7 +224,11 @@ function normalize(raw: Partial<ShredSettings>): ShredSettings {
     rootPc: Number.isFinite(raw.rootPc)
       ? Math.max(0, Math.min(11, Math.round(raw.rootPc as number)))
       : 0,
-    handMode: typeof raw.handMode === 'string' ? raw.handMode : DEFAULT_SETTINGS.handMode,
+    handMode:
+      raw.handModeChosen === true && typeof raw.handMode === 'string'
+        ? raw.handMode
+        : DEFAULT_SETTINGS.handMode,
+    handModeChosen: raw.handModeChosen === true,
     order: typeof raw.order === 'string' ? raw.order : DEFAULT_SETTINGS.order,
     mode: typeof raw.mode === 'string' ? raw.mode : DEFAULT_SETTINGS.mode,
     qwerty: raw.qwerty === true,

@@ -79,6 +79,22 @@ describe('normalizing the preferences', () => {
   })
 })
 
+describe('hands', () => {
+  it('opens with the right hand alone', () => {
+    expect(loadSettings().handMode).toBe('rh')
+  })
+
+  it("ignores the 'as-is' default an older build saved", () => {
+    store.set('pjt:shred:settings', JSON.stringify({ ...DEFAULT_SETTINGS, handMode: 'as-is', handModeChosen: undefined }))
+    expect(loadSettings().handMode).toBe('rh')
+  })
+
+  it('keeps hands the player picked', () => {
+    saveSettings({ ...DEFAULT_SETTINGS, handMode: 'both', handModeChosen: true })
+    expect(loadSettings().handMode).toBe('both')
+  })
+})
+
 describe('what was selected survives a reload', () => {
   it('stores and returns the selects', () => {
     saveSettings({
@@ -86,6 +102,7 @@ describe('what was selected survives a reload', () => {
       exerciseId: 'dim7-arpeggio',
       rootPc: 7,
       handMode: 'both',
+      handModeChosen: true,
       order: 'chromatic',
       mode: 'burst',
       qwerty: true,

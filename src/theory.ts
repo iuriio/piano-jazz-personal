@@ -31,7 +31,7 @@ export function pitchClassName(pc: number, spelling: Spelling = 'flat'): string 
  * Applies to inversions ("CM/E") and to extensions written on the triad
  * ("CMadd9"), because the marker sits right after the root in both.
  */
-function dropMajorMarker(name: string): string {
+export function dropMajorMarker(name: string): string {
   return name.replace(/^([A-G][#b]*)M(?![0-9])/, '$1')
 }
 

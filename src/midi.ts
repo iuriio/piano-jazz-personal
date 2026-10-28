@@ -99,7 +99,15 @@ export function parseNoteEvent(data: ArrayLike<number>, time: number): MidiEvent
   return null
 }
 
-export type MidiStatus = { devices: string[]; error: string | null }
+export type MidiStatus = {
+  /** Input names, kept for the callers that only show a list. */
+  devices: string[]
+  /** Same inputs with their ids: the id is what setInputFilter takes. */
+  inputs: { id: string; name: string }[]
+  /** Only this input reaches the listeners. null = every input. */
+  inputId: string | null
+  error: string | null
+}
 
 type RawListener = (data: ArrayLike<number>, time: number) => void
 
@@ -107,42 +115,90 @@ const rawListeners = new Set<RawListener>()
 const statusListeners = new Set<(s: MidiStatus) => void>()
 const boundInputs = new WeakSet<MIDIInput>()
 
-let status: MidiStatus = { devices: [], error: null }
+let status: MidiStatus = { devices: [], inputs: [], inputId: null, error: null }
 let access: MIDIAccess | null = null
 let starting = false
 
-function publishStatus(next: MidiStatus) {
-  status = next
+function publishStatus(patch: Partial<MidiStatus>) {
+  status = { ...status, ...patch }
   for (const cb of statusListeners) cb(status)
 }
 
-function onMessage(e: MIDIMessageEvent) {
-  if (!e.data) return
-  // timeStamp comes from the driver and is more accurate than reading the clock
-  // in here, which already paid for the event queue. Some environments send 0.
-  const time = e.timeStamp || performance.now()
-  for (const cb of rawListeners) cb(e.data, time)
+function fanOut(data: ArrayLike<number>, time: number) {
+  for (const cb of rawListeners) cb(data, time)
+}
+
+/**
+ * Entry point for every message that came from a MIDIInput.
+ *
+ * Exported so the filter can be tested with a fake input id: the real path only
+ * differs in that a MIDIInput's listener calls this. The filter is applied here,
+ * at delivery time, rather than by unbinding the other inputs — that way an input
+ * that is unplugged and plugged back in (rebound on statechange, possibly as a
+ * new object) is filtered correctly without any bookkeeping.
+ */
+export function receiveFromInput(inputId: string, data: ArrayLike<number>, time: number): void {
+  if (status.inputId !== null && status.inputId !== inputId) return
+  fanOut(data, time)
+}
+
+/**
+ * Restricts the listeners to one input — e.g. a controller that also forwards a
+ * DAW's MIDI clock, or a second keyboard someone else is playing. null = all.
+ *
+ * The filter survives the input disappearing on purpose: unplugging the cable
+ * should not silently widen it to "everything", and when the same device comes
+ * back it keeps working with no action from the user.
+ */
+export function setInputFilter(id: string | null): void {
+  if (id === status.inputId) return
+  publishStatus({ inputId: id })
+}
+
+/**
+ * Feeds a synthetic message to every raw listener, exactly as if it came from
+ * hardware: chord state, the app's own voice and Shred all see it.
+ *
+ * Deliberately independent of Web MIDI — Safari and Firefox have no
+ * requestMIDIAccess, and the computer keyboard has to play there too. It also
+ * ignores the input filter: the filter picks between hardware ports, and the
+ * computer keyboard is not one of them.
+ */
+export function injectRaw(data: number[]): void {
+  // A copy, typed like what a MIDIInput delivers, so a listener that keeps the
+  // message cannot see it change under it if the caller reuses the array.
+  fanOut(Uint8Array.from(data), performance.now())
 }
 
 function bindInputs() {
   if (!access) return
-  const names: string[] = []
+  const inputs: { id: string; name: string }[] = []
   access.inputs.forEach((input) => {
     // addEventListener, not onmidimessage: assigning the property would let the
     // second consumer wipe out the first with no error at all.
     if (!boundInputs.has(input)) {
-      input.addEventListener('midimessage', onMessage as EventListener)
+      // The id is read at bind time: it is what the filter compares against.
+      const id = input.id
+      input.addEventListener('midimessage', (e: Event) => {
+        const m = e as MIDIMessageEvent
+        if (!m.data) return
+        // timeStamp comes from the driver and is more accurate than reading the
+        // clock in here, which already paid for the event queue. Some
+        // environments send 0.
+        receiveFromInput(id, m.data, m.timeStamp || performance.now())
+      })
       boundInputs.add(input)
     }
-    names.push(input.name ?? 'unnamed')
+    inputs.push({ id: input.id, name: input.name ?? 'unnamed' })
   })
-  publishStatus({ devices: names, error: null })
+  publishStatus({ devices: inputs.map((i) => i.name), inputs, error: null })
 }
 
 function start() {
   if (access || starting) return
-  if (!navigator.requestMIDIAccess) {
-    publishStatus({ devices: [], error: 'This browser has no Web MIDI API. Use Chrome or Edge.' })
+  // typeof guard: the module also loads in tests and SSR-ish contexts with no navigator.
+  if (typeof navigator === 'undefined' || !navigator.requestMIDIAccess) {
+    publishStatus({ devices: [], inputs: [], error: 'This browser has no Web MIDI API. Use Chrome or Edge.' })
     return
   }
   starting = true
@@ -153,7 +209,9 @@ function start() {
       a.onstatechange = bindInputs // keyboard plugged/unplugged mid-session
       bindInputs()
     })
-    .catch((e: Error) => publishStatus({ devices: [], error: `MIDI access denied: ${e.message}` }))
+    .catch((e: Error) =>
+      publishStatus({ devices: [], inputs: [], error: `MIDI access denied: ${e.message}` }),
+    )
     .finally(() => {
       starting = false
     })

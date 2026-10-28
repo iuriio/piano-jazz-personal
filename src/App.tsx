@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { KEY_SIGNATURES, type BassSplit } from './analysis'
 import { armAudioResume, resumeAudio } from './audio'
+import { useComputerPiano } from './computerPiano'
+import { Drill } from './Drill'
 import {
   VOICE_HELP,
   VOICE_LABEL,
@@ -8,32 +11,55 @@ import {
   saveSound,
   type Voice,
 } from './instrument'
-import { Drill } from './Drill'
+import { setInputFilter, subscribeStatus, useMidi, type MidiStatus } from './midi'
 import { Shred } from './shred/Shred'
-import { Keyboard, marksFromHeld } from './Keyboard'
-import { Staff } from './Staff'
-import { DEFAULT_SETTLE_MS, useMidi } from './midi'
+import { FreePlay } from './stage/FreePlay'
+import {
+  PlayContext,
+  SPLIT_POINTS,
+  SettingsContext,
+  loadStage,
+  saveStage,
+  type Mode,
+  type StageSettings,
+} from './stage/settings'
 import '@fontsource/jetbrains-mono/400.css'
 import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/700.css'
-import {
-  chordLabel,
-  detectChord,
-  detectVoicing,
-  intervalsFromBass,
-  midiToName,
-  type Spelling,
-} from './theory'
 import './styles.css'
 
-export default function App() {
-  const [tab, setTab] = useState<'viz' | 'drill' | 'shred'>('viz')
-  const [spelling, setSpelling] = useState<Spelling>('flat')
-  const [settleMs, setSettleMs] = useState(DEFAULT_SETTLE_MS)
-  const [sound, setSound] = useState(loadSound)
-  const { held, settled, pedal, devices, error } = useMidi(settleMs)
+/**
+ * Memoised on purpose: what you play changes on every note, and the mode
+ * component (shred above all) must not reconcile because a key went down. The
+ * parts that do follow your hands read the play context themselves.
+ */
+const ModeView = memo(function ModeView({ mode }: { mode: Mode }) {
+  if (mode === 'voicings') return <Drill />
+  if (mode === 'shred') return <Shred />
+  return <FreePlay />
+})
 
-  // The instrument listens to the keyboard on every tab: you play in all three.
+export default function App() {
+  const [settings, setSettings] = useState<StageSettings>(loadStage)
+  const update = useCallback((patch: Partial<StageSettings>) => {
+    setSettings((prev) => saveStage({ ...prev, ...patch }))
+  }, [])
+  const settingsValue = useMemo(() => ({ settings, update }), [settings, update])
+
+  const [sound, setSound] = useState(loadSound)
+  const [status, setStatus] = useState<MidiStatus>({ devices: [], inputs: [], inputId: null, error: null })
+  const { held, settled, pedal } = useMidi(settings.settleMs)
+  const playValue = useMemo(() => ({ held, settled }), [held, settled])
+
+  // Shred has its own tracker-layout computer keyboard; two layouts at once
+  // would play every key twice.
+  const { octave } = useComputerPiano({
+    enabled: settings.mode !== 'shred',
+    velocity: settings.keysVelocity,
+    humanise: settings.keysHumanise,
+  })
+
+  // The instrument listens to every source on every mode: you play in all of them.
   useEffect(() => {
     instrument.connect()
     armAudioResume()
@@ -45,6 +71,9 @@ export default function App() {
     instrument.setLevel(sound.level)
   }, [sound])
 
+  useEffect(() => subscribeStatus(setStatus), [])
+  useEffect(() => setInputFilter(settings.inputId), [settings.inputId])
+
   const changeSound = (patch: Partial<typeof sound>) => {
     // Picking a voice is a gesture, which is the browser's cue to let audio start.
     void resumeAudio()
@@ -52,128 +81,114 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <header>
-        <h1>
-          keytrainer<span className="caret" aria-hidden="true" />
-        </h1>
-        <nav>
-          <button className={tab === 'viz' ? 'on' : ''} onClick={() => setTab('viz')}>
-            [ visualizer ]
-          </button>
-          <button className={tab === 'drill' ? 'on' : ''} onClick={() => setTab('drill')}>
-            [ drill ]
-          </button>
-          <button className={tab === 'shred' ? 'on' : ''} onClick={() => setTab('shred')}>
-            [ shred ]
-          </button>
-        </nav>
-        <div className="settings">
-          <label className="sound" title={VOICE_HELP[sound.voice]}>
-            sound
+    <SettingsContext.Provider value={settingsValue}>
+      <PlayContext.Provider value={playValue}>
+        <div className="app">
+          <header className="topbar">
+            <h1>
+              keytrainer<span className="caret" aria-hidden="true" />
+            </h1>
+
+            <div className="topbar-row">
+              <label className="grp">
+                <span className="grp-label">key</span>
+                <select value={settings.keyId} onChange={(e) => update({ keyId: e.target.value })}>
+                  {KEY_SIGNATURES.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      {k.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <span className="grp" title="Treat the lowest notes as a bass line">
+                <span className="grp-label">bass split</span>
+                <select
+                  value={settings.split}
+                  onChange={(e) => update({ split: e.target.value as BassSplit })}
+                >
+                  <option value="off">off</option>
+                  <option value="slash">slash chord (C/E)</option>
+                  <option value="apart">bass apart</option>
+                </select>
+                <select
+                  value={settings.splitPoint}
+                  disabled={settings.split === 'off'}
+                  aria-label="split point"
+                  onChange={(e) => update({ splitPoint: Number(e.target.value) })}
+                >
+                  {SPLIT_POINTS.map((p) => (
+                    <option key={p.midi} value={p.midi}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </span>
+
+              <span className="grp" title={VOICE_HELP[sound.voice]}>
+                <span className="grp-label">sound</span>
+                <select
+                  value={sound.voice}
+                  onChange={(e) => changeSound({ voice: e.target.value as Voice })}
+                >
+                  {(Object.keys(VOICE_LABEL) as Voice[]).map((v) => (
+                    <option key={v} value={v}>
+                      {VOICE_LABEL[v]}
+                    </option>
+                  ))}
+                </select>
+                <span className="grp-label">vol</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={Math.round(sound.level * 100)}
+                  disabled={sound.voice === 'off'}
+                  aria-label="instrument volume"
+                  onChange={(e) => changeSound({ level: Number(e.target.value) / 100 })}
+                />
+              </span>
+            </div>
+          </header>
+
+          <ModeView mode={settings.mode} />
+
+          <footer className="statusbar">
+            <span className={`midi-dot ${status.error ? 'bad' : status.inputs.length ? 'ok' : ''}`} />
+            <span className="ps1">iuri@keytrainer:~$</span>
+            {status.error ? (
+              <span className="error">{status.error}</span>
+            ) : (
+              <span>
+                midi — {status.inputs.length ? `${status.inputs.length} input${status.inputs.length > 1 ? 's' : ''}` : 'no device'}
+              </span>
+            )}
             <select
-              value={sound.voice}
-              onChange={(e) => changeSound({ voice: e.target.value as Voice })}
+              value={settings.inputId ?? ''}
+              aria-label="MIDI input"
+              onChange={(e) => update({ inputId: e.target.value || null })}
             >
-              {(Object.keys(VOICE_LABEL) as Voice[]).map((v) => (
-                <option key={v} value={v}>
-                  {VOICE_LABEL[v]}
+              <option value="">all inputs</option>
+              {status.inputs.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
                 </option>
               ))}
             </select>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={Math.round(sound.level * 100)}
-              disabled={sound.voice === 'off'}
-              aria-label="instrument volume"
-              onChange={(e) => changeSound({ level: Number(e.target.value) / 100 })}
-            />
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={spelling === 'sharp'}
-              onChange={(e) => setSpelling(e.target.checked ? 'sharp' : 'flat')}
-            />
-            sharps
-          </label>
-          <label title="Time without MIDI events before the chord counts as settled">
-            settle {settleMs}ms
-            <input
-              type="range"
-              min={20}
-              max={200}
-              step={5}
-              value={settleMs}
-              onChange={(e) => setSettleMs(Number(e.target.value))}
-            />
-          </label>
+            {pedal && <span className="pedal-on">pedal</span>}
+            <span className="hint">
+              {settings.mode === 'shred' ? (
+                'computer keys: shred layout (see settings)'
+              ) : (
+                <>
+                  computer keys <kbd>A</kbd>…<kbd>;</kbd> · <kbd>Z</kbd> <kbd>X</kbd> octave (C{octave})
+                </>
+              )}
+            </span>
+          </footer>
         </div>
-      </header>
-
-      {error ? (
-        <p className="error">{error}</p>
-      ) : (
-        <p className="devices">
-          <span className="ps1">iuri@keytrainer:~$</span>
-          {devices.length ? `midi — ${devices.join(', ')}` : 'midi — no device found'}
-          {pedal && <span className="pedal-on">pedal</span>}
-        </p>
-      )}
-
-      {tab === 'viz' && <Visualizer held={held} settled={settled} spelling={spelling} />}
-      {tab === 'drill' && <Drill settled={settled} spelling={spelling} />}
-      {/* Shred subscribes to the raw events: a settled chord is no use for single notes. */}
-      {tab === 'shred' && <Shred spelling={spelling} />}
-
-      <footer aria-hidden="true">
-        <div>
-          <span className="ps1">iuri@keytrainer:~$</span> exit
-        </div>
-        <div className="done">
-          [process completed]
-          <span className="caret" />
-        </div>
-      </footer>
-    </div>
-  )
-}
-
-function Visualizer({
-  held,
-  settled,
-  spelling,
-}: {
-  held: number[]
-  settled: number[]
-  spelling: Spelling
-}) {
-  // Shows the last settled chord: it stays up after you let go of the keys.
-  const notes = settled
-  const names = detectChord(notes, spelling)
-  const match = detectVoicing(notes)
-  const intervals = intervalsFromBass(notes)
-
-  return (
-    <div className="viz">
-      <div className="readout">
-        <div className="chord-symbol">{names[0] ?? (notes.length ? '?' : '—')}</div>
-        {match && (
-          <div className="voicing-name">
-            {match.voicing.label} on {chordLabel(match.rootMidi % 12, match.quality, spelling)}
-          </div>
-        )}
-        {names.length > 1 && <div className="alt-names">also: {names.slice(1, 4).join(', ')}</div>}
-        <div className="note-list">{notes.map((n) => midiToName(n, spelling)).join(' ')}</div>
-        <div className="intervals">{intervals.join(' ')}</div>
-        {match?.voicing.note && <p className="voicing-note">{match.voicing.note}</p>}
-      </div>
-
-      <Staff notes={notes} spelling={spelling} />
-      <Keyboard marks={marksFromHeld(held.length ? held : notes)} />
-    </div>
+      </PlayContext.Provider>
+    </SettingsContext.Provider>
   )
 }

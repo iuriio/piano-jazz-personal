@@ -331,11 +331,12 @@ function build(spec: PatternSpec, rootPc: number, octaves: number): ExpectedNote
  */
 export type HandMode = 'as-is' | 'rh' | 'lh' | 'both'
 
+/** In menu order: one hand first, because that is where practice starts. */
 export const HAND_MODE_LABEL: Record<HandMode, string> = {
-  'as-is': 'as written',
   rh: 'right hand only',
   lh: 'left hand only',
   both: 'both in octaves',
+  'as-is': 'as written',
 }
 
 /**

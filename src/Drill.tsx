@@ -1,24 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Keyboard, marksFromComparison } from './Keyboard'
-import { Staff } from './Staff'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { keyById } from './analysis'
+import { marksFromComparison } from './keyboard'
+import { CHROMATIC, FOURTHS, type Order } from './keys'
+import { usePlay, useSettings } from './stage/settings'
+import { Workspace } from './stage/Workspace'
+import { clearStats, loadStats, recordAttempt, summaryFor, type Stats } from './stats'
 import { chordLabel, compareToTarget, handNotes, pitchClassName, type Spelling } from './theory'
 import { QUALITY_LABEL, VOICINGS, type Quality, voicingToMidi } from './voicings'
-import { loadStats, recordAttempt, summaryFor, clearStats, type Stats } from './stats'
-
-// Cycle of fourths, the standard way to transpose a jazz exercise.
-const FOURTHS = [0, 5, 10, 3, 8, 1, 6, 11, 4, 9, 2, 7]
-const CHROMATIC = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-
-type Order = 'fourths' | 'chromatic' | 'random'
 
 // Root always in C3..B3 — that way the target drawn on the staff is unambiguous.
 const ROOT_OCTAVE_BASE = 48
 
 type Target = { rootPc: number; quality: Quality }
 
-type Props = { settled: number[]; spelling: Spelling }
+/** The accent as a colour value: VexFlow paints with it, so a CSS var() will not do. */
+function accentInk(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#468c2b'
+}
 
-export function Drill({ settled, spelling }: Props) {
+/**
+ * Voicing drill on the stage: the target sits in the banner and on the staff,
+ * the chord card reads what you actually played, and the keys show right, extra
+ * and missing notes.
+ */
+export function Drill() {
+  const { settings } = useSettings()
+  const { settled } = usePlay()
+  const key = keyById(settings.keyId)
+  // keytrainer's chord labels take a flat/sharp preference; the key decides it.
+  const spelling: Spelling = key.accidentals > 0 ? 'sharp' : 'flat'
+
   const [voicingId, setVoicingId] = useState(VOICINGS[0].id)
   const [qualities, setQualities] = useState<Quality[]>(['m7'])
   const [order, setOrder] = useState<Order>('fourths')
@@ -61,8 +72,10 @@ export function Drill({ settled, spelling }: Props) {
     nextTarget(indexRef.current)
   }, [nextTarget])
 
-  const targetMidi = voicingToMidi(voicing, target.quality, ROOT_OCTAVE_BASE + target.rootPc)
-  const comparison = compareToTarget(settled, targetMidi)
+  const targetMidi = useMemo(
+    () => voicingToMidi(voicing, target.quality, ROOT_OCTAVE_BASE + target.rootPc),
+    [voicing, target],
+  )
 
   // Evaluates on every new settled chord. `settled` is a fresh array on each
   // reading, so playing the same chord again fires again — which is what we want.
@@ -87,115 +100,120 @@ export function Drill({ settled, spelling }: Props) {
     }
   }, [settled])
 
+  // Marks only make sense against what was played for THIS target; a fresh target
+  // starts from the outline alone.
+  const marks = useMemo(() => {
+    const played = result === 'pending' && lockedRef.current ? [] : settled
+    return marksFromComparison(compareToTarget(played, targetMidi))
+  }, [settled, targetMidi, result])
+
   const hands = handNotes(voicing, target.quality, ROOT_OCTAVE_BASE + target.rootPc, spelling)
   const summary = summaryFor(stats, voicing.id)
 
   return (
-    <div className="drill">
-      <div className="controls">
-        <label>
-          Voicing
-          <select value={voicingId} onChange={(e) => setVoicingId(e.target.value)}>
-            {VOICINGS.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <fieldset className="qualities">
-          <legend>Quality</legend>
-          {voicing.qualities.map((q) => (
-            <label key={q}>
-              <input
-                type="checkbox"
-                checked={activeQualities.includes(q)}
-                onChange={(e) =>
-                  setQualities((prev) =>
-                    e.target.checked ? [...new Set([...prev, q])] : prev.filter((x) => x !== q),
-                  )
-                }
-              />
-              {QUALITY_LABEL[q]}
+    <Workspace
+      sidebar={
+        <>
+          <section className="side-group">
+            <h3>voicing</h3>
+            <label className="side-row">
+              <span>shape</span>
+              <select value={voicingId} onChange={(e) => setVoicingId(e.target.value)}>
+                {VOICINGS.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
             </label>
-          ))}
-        </fieldset>
+            <div className="check-list" role="group" aria-label="qualities">
+              {voicing.qualities.map((q) => (
+                <label key={q} className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={activeQualities.includes(q)}
+                    onChange={(e) =>
+                      setQualities((prev) =>
+                        e.target.checked ? [...new Set([...prev, q])] : prev.filter((x) => x !== q),
+                      )
+                    }
+                  />
+                  {QUALITY_LABEL[q]}
+                </label>
+              ))}
+            </div>
+            <label className="side-row">
+              <span>order</span>
+              <select value={order} onChange={(e) => setOrder(e.target.value as Order)}>
+                <option value="fourths">cycle of fourths</option>
+                <option value="chromatic">chromatic</option>
+                <option value="random">random</option>
+              </select>
+            </label>
+            <div className="side-buttons">
+              <button onClick={advance}>skip</button>
+              <button onClick={() => setRevealed((r) => !r)}>{revealed ? 'hide' : 'show'} answer</button>
+            </div>
+          </section>
 
-        <label>
-          Order
-          <select value={order} onChange={(e) => setOrder(e.target.value as Order)}>
-            <option value="fourths">Cycle of fourths</option>
-            <option value="chromatic">Chromatic</option>
-            <option value="random">Random</option>
-          </select>
-        </label>
-
-        <button onClick={advance}>Skip</button>
-        <button onClick={() => setRevealed((r) => !r)}>
-          {revealed ? 'Hide' : 'Show'} answer
-        </button>
-      </div>
-
-      <div className={`prompt ${result}`}>
-        <div className="chord-symbol">{chordLabel(target.rootPc, target.quality, spelling)}</div>
-        <div className="voicing-name">{voicing.label}</div>
-        <div className="verdict">
-          {result === 'correct' ? 'right' : result === 'wrong' ? 'wrong' : '...'}
-        </div>
-      </div>
-
-      <div className="side-by-side">
-        <div>
-          <h3>Target</h3>
-          <Staff notes={targetMidi} spelling={spelling} />
+          <section className="side-group">
+            <h3>score</h3>
+            <p className="side-stat">
+              {summary.correct}/{summary.attempts}{' '}
+              <span className="dim">({Math.round(summary.accuracy * 100)}%)</span>
+              {summary.avgMs > 0 && (
+                <span className="dim"> · {(summary.avgMs / 1000).toFixed(1)}s per chord</span>
+              )}
+            </p>
+            <details className="per-key">
+              <summary>by key</summary>
+              <ul>
+                {CHROMATIC.map((pc) => {
+                  const e = stats[voicing.id]?.[pc]
+                  if (!e) return null
+                  return (
+                    <li key={pc}>
+                      {pitchClassName(pc, spelling)}: {e.correct}/{e.attempts}
+                    </li>
+                  )
+                })}
+              </ul>
+            </details>
+            <button
+              className="small"
+              onClick={() => {
+                clearStats()
+                setStats({})
+              }}
+            >
+              reset
+            </button>
+          </section>
+        </>
+      }
+      banner={
+        <div className={`prompt ${result}`}>
+          <span className="prompt-label">play</span>
+          <div className="chord-symbol">{chordLabel(target.rootPc, target.quality, spelling)}</div>
+          <div className="voicing-name">{voicing.label}</div>
           {revealed && (
             <p className="hand-notes">
-              LH: {hands.lh.join(' ')} &nbsp;|&nbsp; RH: {hands.rh.join(' ')}
+              LH {hands.lh.join(' ')} · RH {hands.rh.join(' ')}
             </p>
           )}
+          <div className="verdict">
+            {result === 'correct' ? 'right' : result === 'wrong' ? 'wrong' : '…'}
+          </div>
         </div>
-        <div>
-          <h3>Played</h3>
-          <Staff notes={settled} spelling={spelling} color={result === 'wrong' ? '#b03a2c' : '#1c1c1a'} />
-        </div>
-      </div>
-
-      <Keyboard marks={marksFromComparison(comparison)} />
-
-      <div className="legend">
-        <span className="swatch correct" /> right
-        <span className="swatch extra" /> extra
-        <span className="swatch missing" /> missing
-      </div>
-
-      <div className="stats">
-        {voicing.label}: {summary.correct}/{summary.attempts} ({Math.round(summary.accuracy * 100)}%)
-        {summary.avgMs > 0 && <> · {(summary.avgMs / 1000).toFixed(1)}s per chord</>}
-        <button
-          onClick={() => {
-            clearStats()
-            setStats({})
-          }}
-        >
-          reset
-        </button>
-      </div>
-
-      <details className="per-key">
-        <summary>By key</summary>
-        <ul>
-          {CHROMATIC.map((pc) => {
-            const e = stats[voicing.id]?.[pc]
-            if (!e) return null
-            return (
-              <li key={pc}>
-                {pitchClassName(pc, spelling)}: {e.correct}/{e.attempts}
-              </li>
-            )
-          })}
-        </ul>
-      </details>
-    </div>
+      }
+      notation={{
+        notes: targetMidi,
+        title: 'target',
+        // The staff is the target, so it never turns red: the card and the keys
+        // already say what went wrong. It turns green when you land it.
+        color: result === 'correct' ? accentInk() : undefined,
+      }}
+      marks={marks}
+    />
   )
 }

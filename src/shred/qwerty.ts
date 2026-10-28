@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { MidiEvent } from '../midi'
-import { instrument } from '../instrument'
+import { injectRaw } from '../midi'
 
 // Input from the computer keyboard.
 //
@@ -24,16 +23,11 @@ export const QWERTY_HELP =
   'The bottom row (Z S X D C...) is the base octave, the top row (Q 2 W 3 E...) the next one. The ← → arrows change octave.'
 
 /**
- * Emits the same MidiEvent as the real keyboard, so the rest of the app cannot
- * tell the difference. `baseNote` is the lowest C of the layout.
+ * Injects the same MIDI messages a real keyboard sends, so the rest of the app —
+ * grading, the instrument, the live input — cannot tell the difference. `baseNote`
+ * is the lowest C of the layout.
  */
-export function useComputerKeyboard(
-  enabled: boolean,
-  onEvent: (e: MidiEvent) => void,
-  baseNote = 48,
-): void {
-  const cb = useRef(onEvent)
-  cb.current = onEvent
+export function useComputerKeyboard(enabled: boolean, baseNote = 48): void {
   const base = useRef(baseNote)
   base.current = baseNote
   const down = useRef(new Set<string>())
@@ -57,18 +51,14 @@ export function useComputerKeyboard(
       if (down.current.has(e.code)) return
       down.current.add(e.code)
       const note = base.current + offset + shift.octaves * 12
-      // Straight to the instrument: these never reach the MIDI fan-out, so the
-      // app's own voice would otherwise stay silent for computer-keyboard input.
-      instrument.play('on', note, 80)
-      cb.current({ kind: 'on', note, velocity: 80, time: performance.now() })
+      injectRaw([0x90, note, 80])
     }
 
     const keyUp = (e: KeyboardEvent) => {
       const offset = LAYOUT[e.code]
       if (offset === undefined || !down.current.delete(e.code)) return
       const note = base.current + offset + shift.octaves * 12
-      instrument.play('off', note)
-      cb.current({ kind: 'off', note, velocity: 0, time: performance.now() })
+      injectRaw([0x80, note, 0])
     }
 
     // Switching tabs with a key held down would leave the note stuck forever.
@@ -76,7 +66,7 @@ export function useComputerKeyboard(
       // Otherwise the note is stuck down AND stuck sounding.
       for (const code of down.current) {
         const offset = LAYOUT[code]
-        if (offset !== undefined) instrument.play('off', base.current + offset + shift.octaves * 12)
+        if (offset !== undefined) injectRaw([0x80, base.current + offset + shift.octaves * 12, 0])
       }
       down.current.clear()
     }
