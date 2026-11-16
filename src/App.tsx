@@ -3,7 +3,7 @@ import { AccompanyHost } from './accompany/AccompanyBadge'
 import { KEY_SIGNATURES, type BassSplit } from './analysis'
 import { armAudioResume, resumeAudio } from './audio'
 import { useComputerPiano } from './computerPiano'
-import { Drill } from './Drill'
+import { Drills } from './drills/Drills'
 import {
   VOICE_HELP,
   VOICE_LABEL,
@@ -40,7 +40,7 @@ import './styles.css'
  * parts that do follow your hands read the play context themselves.
  */
 const ModeView = memo(function ModeView({ mode }: { mode: Mode }) {
-  if (mode === 'voicings') return <Drill />
+  if (mode === 'voicings') return <Drills />
   if (mode === 'shred') return <Shred />
   return <FreePlay />
 })

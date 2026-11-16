@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Accidental, Formatter, Renderer, Stave, StaveConnector, StaveNote, Voice } from 'vexflow'
-import { chordNames, keyById, vexKey } from './analysis'
+import { chordNames, keyById, vexKey, type KeySig } from './analysis'
 
 const WIDTH = 340
 const HEIGHT = 230
@@ -11,6 +11,8 @@ type Props = {
   notes: number[]
   /** Key signature id ("Eb", "F#"…): drawn on the staff and drives the spelling. */
   keyId?: string
+  /** The key to spell with when it carries more than the signature (roots a drill asks for). */
+  spell?: KeySig
   /** Ink for the notes; the staff itself always uses the panel's ink. */
   color?: string
   label?: string
@@ -26,7 +28,7 @@ function cssVar(name: string, fallback: string): string {
  * (>= C4 goes to treble). Accidentals come from VexFlow's own key-aware pass, so
  * an F♯ in D major carries no sharp and an F natural does.
  */
-export function Staff({ notes, keyId = 'C', color, label }: Props) {
+export function Staff({ notes, keyId = 'C', spell, color, label }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -34,7 +36,7 @@ export function Staff({ notes, keyId = 'C', color, label }: Props) {
     if (!host) return
     host.innerHTML = ''
 
-    const key = keyById(keyId)
+    const key = spell ?? keyById(keyId)
     // Spelled as the chord they make (C E♭ G B♭ in C), not note by note.
     const names = chordNames(notes, { key, split: 'off', splitPoint: 0 })
     const ink = cssVar('--fg-soft', '#c9c9c2')
@@ -97,7 +99,7 @@ export function Staff({ notes, keyId = 'C', color, label }: Props) {
       // VexFlow pins the size inline too; the panel decides the width.
       svg.removeAttribute('style')
     }
-  }, [notes.join(','), keyId, color, label])
+  }, [notes.join(','), keyId, spell, color, label])
 
   return <div className="staff" ref={hostRef} />
 }

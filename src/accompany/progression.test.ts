@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  fitScore,
   functionOf,
   lockThrough,
   planPhrase,
-  refineBar,
   renderPhrase,
   scalePcs,
   sectionOf,
@@ -110,49 +108,18 @@ describe('locking', () => {
   })
 })
 
-describe('refineBar (the live swap)', () => {
-  // You have been leaning on D, F and A: a Dm triad.
-  const dMinorish = Array.from({ length: 12 }, (_, pc) => ([2, 5, 9].includes(pc) ? 1 : 0))
-
-  it('keeps the function when it swaps', () => {
+describe('the tune', () => {
+  it('repeats chorus after chorus: the same chords in the same place of the form', () => {
     for (let seed = 1; seed <= 6; seed++) {
       for (let i = 0; i < 4; i++) {
-        const p = planPhrase(BB, i, { ...OPTS, seed })
-        for (let bar = 0; bar < 4; bar++) {
-          const q = refineBar(p, bar, dMinorish)
-          expect(functionOf(q.bars[bar].slots[0].token)).toBe(functionOf(p.bars[bar].slots[0].token))
-        }
+        const opts = { ...OPTS, seed }
+        const first = planPhrase(BB, i, opts)
+        const later = planPhrase(BB, i + 8, opts)
+        expect(later.bars).toEqual(first.bars)
+        // Substitutions too, at the richest setting.
+        const sym = (p: ReturnType<typeof planPhrase>) => renderPhrase(p, 4, seed, planPhrase(BB, p.index + 1, opts)).flat().map((c) => c.symbol)
+        expect(sym(later)).toEqual(sym(first))
       }
     }
-  })
-
-  it('swaps I for vi when you keep leaning on G minor', () => {
-    const gMinor = Array.from({ length: 12 }, (_, pc) => (pc === 7 ? 2 : [10, 2].includes(pc) ? 1 : 0))
-    const p = planPhrase(BB, 0, OPTS)
-    const bar = p.bars.findIndex((b) => b.slots[0].token === 'I')
-    expect(bar).toBeGreaterThanOrEqual(0)
-    const q = refineBar(p, bar, gMinor)
-    expect(q.bars[bar].slots[0].token).toBe('vi')
-  })
-
-  it('leaves the chord alone when what you play fits it', () => {
-    const bbTriad = Array.from({ length: 12 }, (_, pc) => ([10, 2, 5].includes(pc) ? 1 : 0))
-    const p = planPhrase(BB, 0, OPTS)
-    const bar = p.bars.findIndex((b) => b.slots[0].token === 'I')
-    expect(refineBar(p, bar, bbTriad)).toBe(p)
-  })
-
-  it('never touches a locked bar', () => {
-    let p = planPhrase(BB, 0, OPTS)
-    p = lockThrough(p, 3, renderPhrase(p, 2, 42))
-    for (let bar = 0; bar < 4; bar++) expect(refineBar(p, bar, dMinorish)).toBe(p)
-  })
-
-  it('scores avoid notes down: the 4th over IΔ', () => {
-    const bbMaj7 = [10, 2, 5, 9]
-    const withFourth = Array.from({ length: 12 }, (_, pc) => (pc === 3 ? 1 : 0))
-    const withNinth = Array.from({ length: 12 }, (_, pc) => (pc === 0 ? 1 : 0))
-    expect(fitScore(bbMaj7, BB, withFourth)).toBeLessThan(0)
-    expect(fitScore(bbMaj7, BB, withNinth)).toBeGreaterThan(0)
   })
 })

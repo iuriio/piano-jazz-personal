@@ -7,9 +7,11 @@ import { pcOf, rng, subSeed } from './played'
 //
 // The unit is a phrase of 4 bars. There is always the phrase being played and
 // the one after it on screen; the next one is planned when the current one
-// starts its last bar. Phrases make a little tune, A A′ B A″ (16 bars), so the
-// harmony has a shape instead of a random walk, and each section gets its own
-// rhythm patterns (patterns.ts), as iReal varies its choruses.
+// ends. Phrases make a little tune, A A′ B A″ (16 bars), drawn once per session
+// and then repeated chorus after chorus, the way a standard is: you can learn it
+// and know what is coming. Each section gets its own rhythm patterns
+// (patterns.ts), as iReal varies its choruses. What is on the chart plays as
+// shown: nothing on screen is re-decided while you play over it.
 //
 // A phrase stores roman numerals, not chord names. The names are rendered from
 // them at the current complexity, so moving "simple ↔ rich" redraws every bar
@@ -109,14 +111,6 @@ const TEMPLATES: Record<KeyMode, Templates> = {
   },
 }
 
-/** Same-function alternatives, for the live swap. */
-const BY_FUNCTION: Record<KeyMode, Record<Fn, string[]>> = {
-  major: { T: ['I', 'vi', 'iii'], SD: ['IV', 'ii'], D: ['V', 'viiø'] },
-  minor: { T: ['i', 'bIII', 'bVI'], SD: ['iv', 'iiø'], D: ['V', 'bVII7'] },
-  dorian: { T: ['i'], SD: ['IV7', 'bVII'], D: ['v'] },
-  mixolydian: { T: ['I7'], SD: ['IV', 'bVII'], D: ['v'] },
-}
-
 // --- numerals -----------------------------------------------------------------
 
 type Family = 'maj' | 'min' | 'dom' | 'hdim' | 'dim'
@@ -198,8 +192,10 @@ function chordOf(symbol: string, token: string, beats: number, hold: boolean, fn
 
 /** The section a phrase plays in the A A′ B A″ form. */
 export function sectionOf(index: number): Section {
-  return SECTIONS[((index % 4) + 4) % 4]
+  return SECTIONS[sectionIndex(index)]
 }
+
+const sectionIndex = (index: number) => ((index % 4) + 4) % 4
 
 /**
  * Plans phrase `index` in a key. Pure: the same seed and index always give the
@@ -207,9 +203,8 @@ export function sectionOf(index: number): Section {
  */
 export function planPhrase(key: PlanKey, index: number, opts: PlanOpts): Phrase {
   const t = TEMPLATES[key.mode]
-  // Templates are drawn once per 16-bar cycle, so A, A′ and A″ belong together.
-  const cycle = Math.floor(index / 4)
-  const r = rng(subSeed(opts.seed, cycle))
+  // Templates are drawn once per session: every chorus of the tune is the same tune.
+  const r = rng(subSeed(opts.seed, 0))
   const pick = <T,>(xs: T[], not?: T) => {
     const pool = xs.length > 1 && not !== undefined ? xs.filter((x) => x !== not) : xs
     return pool[Math.floor(r() * pool.length)]
@@ -267,7 +262,8 @@ export function renderPhrase(p: Phrase, complexity: Complexity, seed: number, af
 }
 
 function substitute(chord: PlanChord, next: string, p: Phrase, bar: number, complexity: Complexity, seed: number): PlanChord[] {
-  const r = rng(subSeed(seed, p.index * 16 + bar))
+  // By place in the form, not by phrase: the same bar of the next chorus gets the same substitution.
+  const r = rng(subSeed(seed, sectionIndex(p.index) * 16 + bar))
   const roll = r()
   const target = parseNumeral(next)
   const targetRoot = (p.key.center + target.degree) % 12
@@ -302,65 +298,6 @@ export function lockThrough(p: Phrase, bar: number, rendered: PlanChord[][]): Ph
     ...p,
     bars: p.bars.map((b, i) => (i <= bar && !b.locked ? { ...b, locked: rendered[i] } : b)),
   }
-}
-
-// --- the live swap --------------------------------------------------------------
-
-/**
- * How well a chord sits under what you played: +1 for each chord tone, +0.3 for
- * an available tension, −0.7 for an avoid note (a scale tone a half step above a
- * chord tone: the 4th over IΔ, the ♭9 over iii). Weighted by how much you played
- * each pitch class.
- */
-export function fitScore(tones: number[], key: PlanKey, weights: number[]): number {
-  const scale = scalePcs(key)
-  let score = 0
-  for (let pc = 0; pc < 12; pc++) {
-    const w = weights[pc]
-    if (!w) continue
-    if (tones.includes(pc)) score += w
-    else if (tones.some((t) => (t + 1) % 12 === pc) && scale.includes(pc)) score -= 0.7 * w
-    else if (scale.includes(pc)) score += 0.3 * w
-  }
-  return score
-}
-
-/** How far the best alternative must be ahead, as a share of what you played. */
-const SWAP_MARGIN = 0.25
-
-/**
- * Before a bar locks: if what you have been playing fits another chord of the
- * same function clearly better, that one plays instead. The function — and so
- * the shape of the phrase — is kept; only the colour follows you. Pure.
- */
-export function refineBar(p: Phrase, bar: number, weights: number[]): Phrase {
-  const b = p.bars[bar]
-  if (!b || b.locked || b.slots.length !== 1 || b.slots[0].hold) return p
-  const total = weights.reduce((a, x) => a + x, 0)
-  if (total <= 0) return p
-  const slot = b.slots[0]
-  const current = pickToken(slot.token, 2)
-  const fn = functionOf(current)
-  const score = (token: string) => {
-    const c = chordOf(symbolFor(token, p.key, 2), token, slot.beats, false)
-    return fitScore(c.tones, p.key, weights)
-  }
-  const mine = score(current)
-  let best = current
-  let bestScore = mine
-  for (const alt of BY_FUNCTION[p.key.mode][fn]) {
-    if (functionOf(alt) !== fn) continue
-    const s = score(alt)
-    if (s > bestScore) (best = alt), (bestScore = s)
-  }
-  if (best === current || bestScore - mine < SWAP_MARGIN * total) return p
-  // A held bar after this one is the same chord carrying on: it changes with it.
-  const bars = p.bars.map((x, i) => {
-    if (i === bar) return { ...x, slots: [{ ...slot, token: best }] }
-    if (i === bar + 1 && x.slots[0]?.hold && !x.locked) return { ...x, slots: [{ ...x.slots[0], token: best }] }
-    return x
-  })
-  return { ...p, bars }
 }
 
 /** Center + degree as a pitch class, for tests and the chart's key line. */

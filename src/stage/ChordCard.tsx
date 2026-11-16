@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
-import { keyById, readChord } from '../analysis'
+import { readChord } from '../analysis'
+import { glyph } from '../drills/spell'
+import { useStageKey } from './asked'
 import { chordLabel, detectVoicing } from '../theory'
 import { Swap } from '../ui/Swap'
 import { NAMING_LABEL, nextNamingStyle, styleSymbol } from './naming'
@@ -29,7 +31,7 @@ function byDegree(intervals: string[]): string[] {
  */
 export function ChordCard() {
   const { settings, update, held } = useStage()
-  const key = keyById(settings.keyId)
+  const key = useStageKey()
   const notes = useShownChordNotes()
 
   const reading = useMemo(
@@ -38,7 +40,7 @@ export function ChordCard() {
   )
   // keytrainer's own voicing table: recognises the named jazz shapes.
   const match = useMemo(() => detectVoicing(notes), [notes])
-  const spelling = key.accidentals < 0 ? 'flat' : 'sharp'
+  const spelling = key.accidentals < 0 ? 'flat' : key.accidentals > 0 ? 'sharp' : 'lead'
 
   const symbol = reading ? styleSymbol(reading.symbol, settings.naming) : null
 
@@ -96,7 +98,7 @@ export function ChordCard() {
           {symbol && match && (
             <Swap k={`${match.voicing.id}-${match.rootMidi % 12}-${match.quality}`}>
               <div className="voicing-name">
-                {match.voicing.label} on {chordLabel(match.rootMidi % 12, match.quality, spelling)}
+                {match.voicing.label} on {glyph(chordLabel(match.rootMidi % 12, match.quality, spelling))}
               </div>
             </Swap>
           )}

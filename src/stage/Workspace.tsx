@@ -1,7 +1,8 @@
 import { useCallback, useMemo, type ReactNode } from 'react'
 import { useAccompanySheet } from '../accompany/accompanist'
 import { LeadSheet } from '../accompany/LeadSheet'
-import { chordNames, keyById, spellMidi } from '../analysis'
+import { chordNames, spellMidi } from '../analysis'
+import { useStageKey } from './asked'
 import type { KeyMark } from '../keyboard'
 import { Staff } from '../Staff'
 import { AccompanyBadge } from '../accompany/AccompanyBadge'
@@ -34,7 +35,7 @@ type Props = {
  */
 export function Workspace({ sidebar, banner, card, aside, notation, marks, roll, quiet, below }: Props) {
   const { settings, update, held } = useStage()
-  const key = keyById(settings.keyId)
+  const key = useStageKey()
   // Labels spell what is held as the chord it makes: E♭ in a Cm7, even in C.
   const names = useMemo(
     () => chordNames(held, { key, split: settings.split, splitPoint: settings.splitPoint }),
@@ -73,7 +74,7 @@ export function Workspace({ sidebar, banner, card, aside, notation, marks, roll,
       <main className="stage">
         {banner}
         <div className="card-row">
-          <AccompanyBadge />
+          {settings.mode === 'free' && <AccompanyBadge />}
           {card ?? <ChordCard />}
           {aside ?? (sheet ? <LeadSheet /> : (
             <section className="panel notation">
@@ -81,7 +82,7 @@ export function Workspace({ sidebar, banner, card, aside, notation, marks, roll,
                 <h3>{notation?.title ?? 'notation'}</h3>
                 <span className="panel-meta">key of {key.label.split(' / ')[0].replace(' major', '')}</span>
               </header>
-              <Staff notes={staffNotes} keyId={key.id} color={notation?.color} />
+              <Staff notes={staffNotes} keyId={key.id} spell={key} color={notation?.color} />
             </section>
           ))}
         </div>

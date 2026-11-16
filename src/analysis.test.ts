@@ -47,8 +47,11 @@ describe('spelling for the key', () => {
     expect(spellMidi(64, keyById('Cb'))).toBe('Fb4')
   })
 
-  it('chromatic notes go sharp in C and sharp keys, flat in flat keys', () => {
-    expect(spellMidi(61, keyById('C'))).toBe('C#4')
+  it('with no signature, chromatic notes take their lead sheet names', () => {
+    expect([61, 63, 66, 68, 70].map((n) => spellMidi(n, keyById('C')))).toEqual(['Db4', 'Eb4', 'F#4', 'Ab4', 'Bb4'])
+  })
+
+  it('chromatic notes go sharp in sharp keys, flat in flat keys', () => {
     expect(spellMidi(63, keyById('G'))).toBe('D#4')
     expect(spellMidi(61, keyById('F'))).toBe('Db4')
     expect(spellMidi(66, keyById('Eb'))).toBe('Gb4')
@@ -551,7 +554,7 @@ describe('chordNames', () => {
 
   it('a lone note is left to the key', () => {
     expect(chordNames([61], opts).size).toBe(0)
-    expect(spellMidi(61, opts.key, chordNames([61], opts))).toBe('C#4')
+    expect(spellMidi(61, opts.key, chordNames([61], opts))).toBe('Db4')
   })
 })
 
@@ -560,5 +563,41 @@ describe('readChord: add eleven', () => {
     const r = readChord([60, 64, 65, 67], { key: keyById('C'), split: 'off', splitPoint: 47 })!
     expect(r.symbol).toBe('Cadd11')
     expect(r.intervals).toContain('11')
+  })
+})
+
+describe('reading a chord the way the drills ask for it', () => {
+  // The drills ask with D♭ E♭ F♯ A♭ B♭ and count the tones from the root.
+  it('with no signature, roots take their lead sheet names', () => {
+    expect(read([61, 65, 68, 72]).symbol).toBe('D♭maj7')
+    expect(read([63, 66, 70, 73]).symbol).toBe('E♭m7')
+    expect(read([66, 69, 73, 76]).symbol).toBe('F♯m7')
+    expect(read([68, 71, 75, 78]).symbol).toBe('A♭m7')
+    expect(read([70, 73, 77, 80]).symbol).toBe('B♭m7')
+  })
+
+  it('spells the tones from that root, as plain keys where the exact name is unreadable', () => {
+    expect(read([66, 69, 73, 76]).spelled).toEqual(['F♯', 'A', 'C♯', 'E'])
+    expect(read([61, 65, 68, 71]).spelled).toEqual(['D♭', 'F', 'A♭', 'B']) // D♭7: the seventh is C♭
+    expect(read([61, 64, 68, 71]).spelled).toEqual(['D♭', 'E', 'A♭', 'B']) // D♭m7
+  })
+
+  it('a key signature still spells its own way', () => {
+    expect(read([61, 64, 68, 71], 'E').symbol).toBe('C♯m7')
+    expect(read([68, 71, 75, 78], 'Gb').symbol).toBe('A♭m7')
+  })
+
+  it('a root a drill asks for keeps the name the drill gave it, in any key', () => {
+    const asked = (keyId: string, name: string, pc: number) => ({ ...keyById(keyId), asked: new Map([[pc, name]]) })
+    const opts = (key: ReturnType<typeof asked>) => ({ key, split: 'off' as const, splitPoint: 47 })
+    // The two of B major is C♯m7, though the page has no signature.
+    const two = readChord([61, 64, 68, 71], opts(asked('C', 'C#', 1)))!
+    expect(two.symbol).toBe('C♯m7')
+    expect(two.spelled).toEqual(['C♯', 'E', 'G♯', 'B'])
+    // And an F♯ asked for on a page in E♭ is not read back as G♭.
+    expect(readChord([66, 69, 73, 76], opts(asked('Eb', 'F#', 6)))!.symbol).toBe('F♯m7')
+    expect(readChord([66], opts(asked('Eb', 'F#', 6)))!.symbol).toBe('F♯')
+    // Other roots are untouched.
+    expect(readChord([63, 67, 70], opts(asked('C', 'C#', 1)))!.symbol).toBe('E♭')
   })
 })

@@ -63,6 +63,20 @@ export const BANK_TRIM_DB: Record<Bank, number> = {
   'kit-acoustic': 12,
 }
 
+/**
+ * Highpass per set, Hz (0: none), 12 dB/octave. The keyboards stay full range:
+ * your own playing shares these sets, and the band cuts its piano's low end on
+ * its own input. The kit's kick speaks at about 60 Hz but its recording also
+ * carries a 40 Hz boom (and the 12 dB trim lifts that too), right on the bass's
+ * lowest notes; the cut takes ~4 dB off 40 Hz and barely 1 dB off the kick.
+ */
+export const BANK_LOW_CUT_HZ: Record<Bank, number> = {
+  grand: 0,
+  wurlitzer: 0,
+  cp80: 0,
+  'kit-acoustic': 45,
+}
+
 /** Bumped whenever a file under public/samples changes, so the browser cache is not stale. */
 export const SAMPLES_VERSION = 2
 const CACHE_PREFIX = 'keytrainer-samples-v'
@@ -246,6 +260,7 @@ export type SampledNote = {
 export class SampledInstrument {
   private inst: Sampler | null = null
   private trim: GainNode
+  private lowCut: BiquadFilterNode | null = null
   private disposed = false
   private stopSeq = 0
   /** Resolves when the instrument can play (or never will: check `playable`). */
@@ -259,7 +274,17 @@ export class SampledInstrument {
   ) {
     this.trim = ctx.createGain()
     this.trim.gain.value = 10 ** (BANK_TRIM_DB[bank] / 20)
-    this.trim.connect(dest)
+    if (BANK_LOW_CUT_HZ[bank] > 0) {
+      const hp = ctx.createBiquadFilter()
+      hp.type = 'highpass'
+      hp.frequency.value = BANK_LOW_CUT_HZ[bank]
+      hp.Q.value = Math.SQRT1_2
+      this.trim.connect(hp)
+      hp.connect(dest)
+      this.lowCut = hp
+    } else {
+      this.trim.connect(dest)
+    }
     const load = prepare(ctx, bank)
     this.ready = this.boot(load)
   }
@@ -323,5 +348,6 @@ export class SampledInstrument {
     this.inst?.dispose()
     this.inst = null
     this.trim.disconnect()
+    this.lowCut?.disconnect()
   }
 }

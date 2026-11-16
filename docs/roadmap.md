@@ -68,6 +68,9 @@ Status: `done` · `wip` · `next` · `later` · `out` (deliberately left out).
 | Feature | Notes | Status |
 | --- | --- | --- |
 | Voicing drill | All 12 keys, note-by-note validation, stats per key | done |
+| Intervals in 2s | Any interval from any note, answered at the keyboard and timed to the first note; a map of all 132 questions | done |
+| 7th chords in 2s | maj7 / m7 / 7 (and six more types) from all 12 roots in random order, root position, timed to the last note | done |
+| 2-5-1 in 12 keys | Major and minor; close position, shells, rootless; the lesson's key walk; three clean laps from memory | done |
 | Shred | Hanon and friends, BPM ladder driven by clean reps, per-note diagnosis | done |
 
 ## Performance notes

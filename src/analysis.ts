@@ -1,5 +1,12 @@
 import { Chord, ChordType, Note, Scale } from 'tonal'
-import { PITCH_CLASSES_FLAT, PITCH_CLASSES_SHARP, dropMajorMarker } from './theory'
+import {
+  PITCH_CLASSES_FLAT,
+  PITCH_CLASSES_LEAD,
+  PITCH_CLASSES_SHARP,
+  dropMajorMarker,
+  noteAbove,
+  plainName,
+} from './theory'
 
 // Reads whatever is held on the keyboard as a chord, for the live chord card.
 // Everything that ends up on screen is spelled for the chosen key signature.
@@ -9,7 +16,18 @@ import { PITCH_CLASSES_FLAT, PITCH_CLASSES_SHARP, dropMajorMarker } from './theo
 // the keyboard to deserve its name.
 if (ChordType.get('add11').empty) ChordType.add(['1P', '3M', '5P', '11P'], ['add11'], 'major add eleven')
 
-export type KeySig = { id: string; label: string; tonicPc: number; accidentals: number }
+export type KeySig = {
+  id: string
+  label: string
+  tonicPc: number
+  accidentals: number
+  /**
+   * Roots a drill is asking for, by pitch class, as the drill wrote them
+   * ("C#" for the two of B major). They win over the key's own spelling, so the
+   * card reads a chord back with the name it was asked by.
+   */
+  asked?: ReadonlyMap<number, string>
+}
 
 // [id, tonic pc, accidentals, relative minor]
 const KEY_DATA: [string, number, number, string][] = [
@@ -46,6 +64,15 @@ export function keyById(id: string): KeySig {
   return KEY_SIGNATURES.find((k) => k.id === id) ?? KEY_SIGNATURES[0]
 }
 
+/**
+ * With no key signature there is no key to spell by, so roots take their lead
+ * sheet names (D♭ E♭ F♯ A♭ B♭) and chord tones are counted from them — the way
+ * the drills ask. A root a drill is asking for is read the same way in any key.
+ */
+function leadRoot(key: KeySig, rootPc: number): string | null {
+  return key.asked?.get(rootPc) ?? (key.accidentals === 0 ? PITCH_CLASSES_LEAD[rootPc] : null)
+}
+
 const pcOf = (midi: number) => ((midi % 12) + 12) % 12
 
 const SPELLING_CACHE = new Map<string, string[]>()
@@ -53,12 +80,23 @@ const SPELLING_CACHE = new Map<string, string[]>()
 /**
  * Name of each of the 12 pitch classes in a key. The scale's own letters win
  * (so Cb major really has a Cb and C# major a B#); the five chromatic notes
- * follow the direction of the signature, with C counting as a sharp key.
+ * follow the direction of the signature. C has none: its chromatic notes take
+ * their lead sheet names. Roots a drill is asking for keep the drill's name.
  */
 function keySpelling(key: KeySig): string[] {
+  const names = signatureSpelling(key)
+  if (!key.asked) return names
+  const asked = [...names]
+  for (const [pc, name] of key.asked) asked[pc] = name
+  return asked
+}
+
+function signatureSpelling(key: KeySig): string[] {
   const cached = SPELLING_CACHE.get(key.id)
   if (cached) return cached
-  const names = [...(key.accidentals < 0 ? PITCH_CLASSES_FLAT : PITCH_CLASSES_SHARP)]
+  const names = [
+    ...(key.accidentals < 0 ? PITCH_CLASSES_FLAT : key.accidentals > 0 ? PITCH_CLASSES_SHARP : PITCH_CLASSES_LEAD),
+  ]
   for (const n of Scale.get(`${key.id} major`).notes) names[Note.chroma(n)!] = n
   SPELLING_CACHE.set(key.id, names)
   return names
@@ -238,6 +276,8 @@ function inversionNumber(ivl: string, intervals: string[]): number {
 type Formatted = {
   rootPc: number
   rootName: string
+  /** The root is a lead sheet name: tensions over it are written as plain keys too. */
+  plain: boolean
   base: string // symbol without bass, ASCII: "Bbm7"
   name: string
   intervals: string[]
@@ -264,18 +304,21 @@ function formatChord(rootPc: number, alias: string, key: KeySig): Formatted {
     )
     if (!best || score < best.score) best = { root, score }
   }
-  const rootName = best!.root
+  const lead = leadRoot(key, rootPc)
+  const rootName = lead ?? best!.root
   const chord = Chord.getChord(alias, rootName)
   const tones = new Map<number, { name: string; ivl: string }>()
   chord.notes.forEach((n, i) => {
     const pc = Note.chroma(n)!
-    if (!tones.has(pc)) tones.set(pc, { name: n, ivl: chord.intervals[i] })
+    // On a lead sheet root the tones read as plain keys (the seventh of D♭7 is B).
+    if (!tones.has(pc)) tones.set(pc, { name: lead ? plainName(n) : n, ivl: chord.intervals[i] })
   })
   const typeName = chord.type ? chord.type[0].toUpperCase() + chord.type.slice(1) : ''
   const suffix = DISPLAY_SUFFIX[alias] ?? alias
   return {
     rootPc,
     rootName,
+    plain: lead !== null,
     base: dropMajorMarker(rootName + suffix),
     name: NAMES[alias] ?? (typeName || `${glyph(suffix)} chord`),
     intervals: chord.intervals,
@@ -292,7 +335,8 @@ function tension(f: Formatted, pc: number): { label: string; name: string } | nu
   let ivl = TENSIONS[pcOf(pc - f.rootPc)]
   // Next to a minor third, pitch class 3 is that third again, not a ♯9.
   if (ivl === '9A' && !f.intervals.includes('3M')) ivl = '3m'
-  const name = Note.pitchClass(Note.transpose(f.rootName, ivl))
+  const exact = Note.pitchClass(Note.transpose(f.rootName, ivl))
+  const name = f.plain && exact ? plainName(exact) : exact
   if (!name || isDouble(name)) return null
   return { label: degreeLabel(ivl), name }
 }
@@ -484,6 +528,7 @@ function readNotes(midi: number[], key: KeySig): { reading: ChordReading; best: 
     // The upper note is named as the interval it makes (C + minor third = Eb),
     // unless that needs a double accidental.
     let upper = Note.pitchClass(Note.transpose(root, DYAD_INTERVALS[semis]))
+    if (leadRoot(key, low)) upper = noteAbove(root, DYAD_INTERVALS[semis])
     if (semis === 6 || isDouble(upper) || Note.chroma(upper) !== high) upper = names[high]
     const spell = (n: number) => glyph(pcOf(n) === low ? root : upper)
     return {

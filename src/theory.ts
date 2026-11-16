@@ -4,21 +4,52 @@ import {
   VOICINGS,
   type Quality,
   type Voicing,
+  degreeInterval,
   degreeToSemitones,
+  voicingHands,
   voicingToMidi,
 } from './voicings'
 
 export const PITCH_CLASSES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
 export const PITCH_CLASSES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-export type Spelling = 'flat' | 'sharp'
+/**
+ * The 12 roots the way a lead sheet writes them when there is no key to go by:
+ * flats, except F♯. The drills ask with these names and the stage, with no key
+ * signature, reads with them, so what is asked and what is read back agree.
+ */
+export const PITCH_CLASSES_LEAD = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+
+/** 'lead' is PITCH_CLASSES_LEAD: the spelling with no key signature. */
+export type Spelling = 'flat' | 'sharp' | 'lead'
+
+const SPELLINGS: Record<Spelling, string[]> = {
+  flat: PITCH_CLASSES_FLAT,
+  sharp: PITCH_CLASSES_SHARP,
+  lead: PITCH_CLASSES_LEAD,
+}
 
 export function midiToName(midi: number, spelling: Spelling = 'flat'): string {
+  if (spelling === 'lead') return `${pitchClassName(midi, 'lead')}${Math.floor(midi / 12) - 1}`
   return Midi.midiToNoteName(midi, { sharps: spelling === 'sharp' })
 }
 
 export function pitchClassName(pc: number, spelling: Spelling = 'flat'): string {
-  return (spelling === 'sharp' ? PITCH_CLASSES_SHARP : PITCH_CLASSES_FLAT)[((pc % 12) + 12) % 12]
+  return SPELLINGS[spelling][((pc % 12) + 12) % 12]
+}
+
+/** A spelling nobody reads at the keyboard (A𝄫, C♭, E♯) as the plain key it is. */
+export function plainName(name: string): string {
+  return /bb|##|^(Cb|Fb|E#|B#)$/.test(name) ? Note.simplify(name) : name
+}
+
+/**
+ * The note a tonal interval ("7m", "5d") above a root, spelled the way it is
+ * counted — a minor third above C is E♭, never D♯ — except where the exact
+ * spelling is one nobody reads at the keyboard (A𝄫, C♭): those become the plain key.
+ */
+export function noteAbove(root: string, interval: string): string {
+  return plainName(Note.pitchClass(Note.transpose(root, interval)))
 }
 
 /**
@@ -74,6 +105,53 @@ export function compareToTarget(played: number[], target: number[]) {
   }
 }
 
+// Nearest first, so a tie goes to the octave closest to where the target is drawn.
+const OCTAVE_SHIFTS = [0, -1, 1, -2, 2, -3, 3, -4, 4]
+const PIANO_LOW = 21
+const PIANO_HIGH = 108
+
+/**
+ * The target moved by whole octaves to where it was played, so a shape counts
+ * anywhere on the keyboard and not only in the octave it is drawn in. The shape
+ * itself never changes: every note of `body` moves together. `bass` is a lone
+ * bass note under it, which may also sit in an octave of its own — a root played
+ * further down — as long as it stays below the rest.
+ *
+ * Picks the placement with the most played notes in it; with nothing played, or
+ * nothing in common anywhere, that is the target as written.
+ */
+export function placeTarget(played: number[], body: number[], bass?: number): number[] {
+  const p = new Set(played)
+  const hits = (notes: number[]) => notes.filter((n) => p.has(n)).length
+  let best = bass === undefined ? [...body] : [bass, ...body]
+  let bestHits = hits(best)
+  for (const k of OCTAVE_SHIFTS) {
+    const moved = body.map((n) => n + 12 * k)
+    for (const kBass of bass === undefined ? [0] : OCTAVE_SHIFTS) {
+      const candidate = bass === undefined ? moved : [bass + 12 * (k + kBass), ...moved]
+      if (bass !== undefined && candidate[0] >= Math.min(...moved)) continue
+      if (candidate.some((n) => n < PIANO_LOW || n > PIANO_HIGH)) continue
+      const h = hits(candidate)
+      if (h > bestHits) {
+        best = candidate
+        bestHits = h
+      }
+    }
+  }
+  return best.sort((a, b) => a - b)
+}
+
+/** The voicing for a root, placed where it was played: see `placeTarget`. */
+export function placeVoicing(played: number[], voicing: Voicing, quality: Quality, rootMidi: number): number[] {
+  const hands = voicingHands(voicing, quality)
+  const midi = (tokens: string[]) => tokens.map((d) => rootMidi + degreeToSemitones(d, quality))
+  // One note in the left hand is a bass root, free to go lower; a left hand
+  // that plays part of the shape moves with it.
+  return hands.lh.length === 1
+    ? placeTarget(played, midi(hands.rh), midi(hands.lh)[0])
+    : placeTarget(played, midi([...hands.lh, ...hands.rh]))
+}
+
 export type VoicingMatch = { voicing: Voicing; quality: Quality; rootMidi: number }
 
 /**
@@ -105,12 +183,16 @@ export function chordLabel(rootPc: number, quality: Quality, spelling: Spelling 
 
 /** Note names for each hand, to show under the exercise. */
 export function handNotes(voicing: Voicing, quality: Quality, rootMidi: number, spelling: Spelling = 'flat') {
+  // Each note is named as the degree it is — the third of F♯m7 is A and its
+  // fifth C♯ — which is how the chord card spells the same chord.
+  const root = pitchClassName(rootMidi, spelling)
   const toNames = (tokens: string[]) =>
     tokens
-      .map((d) => rootMidi + degreeToSemitones(d, quality))
-      .sort((a, b) => a - b)
-      .map((n) => midiToName(n, spelling))
-  return { lh: toNames(voicing.lh), rh: toNames(voicing.rh) }
+      .map((d) => ({ midi: rootMidi + degreeToSemitones(d, quality), pc: noteAbove(root, degreeInterval(d, quality)) }))
+      .sort((a, b) => a.midi - b.midi)
+      .map((n) => `${n.pc}${Math.floor(n.midi / 12) - 1}`)
+  const hands = voicingHands(voicing, quality)
+  return { lh: toNames(hands.lh), rh: toNames(hands.rh) }
 }
 
 /** Enharmonically correct name for VexFlow, in the "eb/4" format. */

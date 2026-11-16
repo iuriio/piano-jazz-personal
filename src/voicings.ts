@@ -24,12 +24,19 @@ const DEGREE_SEMITONES: Record<Quality, Record<number, number>> = {
   maj7: { 1: 0, 3: 4, 5: 7, 7: 11, 9: 14, 11: 18, 13: 21 }, // same on maj7
 }
 
+export type Hands = { lh: string[]; rh: string[] }
+
 export type Voicing = {
   id: string
   label: string
   qualities: Quality[]
   lh: string[]
   rh: string[]
+  /**
+   * A quality whose shape is not just the same degrees with other alterations:
+   * the rootless voicings swap the fifth for the 13th on a dominant.
+   */
+  byQuality?: Partial<Record<Quality, Hands>>
   note?: string
 }
 
@@ -38,18 +45,20 @@ export type Voicing = {
 // Reference: root at C3 (MIDI 48).
 export const VOICINGS: Voicing[] = [
   {
-    id: 'shell-b',
-    label: 'Shell B',
-    qualities: QUALITIES,
-    lh: ['1'],
-    rh: ['3', '7'], // Cm7: C3 / Eb3 Bb3
-  },
-  {
     id: 'shell-a',
     label: 'Shell A',
     qualities: QUALITIES,
     lh: ['1'],
+    rh: ['3', '7'], // Cm7: C3 / Eb3 Bb3
+    note: 'Position A: the third below the seventh.',
+  },
+  {
+    id: 'shell-b',
+    label: 'Shell B',
+    qualities: QUALITIES,
+    lh: ['1'],
     rh: ['7', "3'"], // Cm7: C3 / Bb3 Eb4
+    note: 'Position B: the seventh at the bottom, the third on top.',
   },
   {
     id: 'open',
@@ -72,7 +81,8 @@ export const VOICINGS: Voicing[] = [
     qualities: QUALITIES,
     lh: ['1'],
     rh: ["3'", "5'", "7'", "9'"], // Cm7: C3 / Eb4 G4 Bb4 D5
-    note: 'Bill Evans A: 3-5-7-9 starting from the third.',
+    byQuality: { '7': { lh: ['1'], rh: ["3'", '13', "7'", "9'"] } }, // C7: C3 / E4 A4 Bb4 D5
+    note: 'Bill Evans A: 3-5-7-9 starting from the third. On a dominant the fifth moves up a whole step to the 13th.',
   },
   {
     id: 'rootless-b',
@@ -80,7 +90,8 @@ export const VOICINGS: Voicing[] = [
     qualities: QUALITIES,
     lh: ['1'],
     rh: ['7', '9', "3'", "5'"], // Cm7: C3 / Bb3 D4 Eb4 G4
-    note: 'Bill Evans B: same notes, inverted to start from the seventh.',
+    byQuality: { '7': { lh: ['1'], rh: ['7', '9', "3'", '13'] } }, // C7: C3 / Bb3 D4 E4 A4
+    note: 'Bill Evans B: same notes, inverted to start from the seventh. On a dominant the fifth is the 13th.',
   },
   {
     id: 'crunch-1',
@@ -129,9 +140,24 @@ export function degreeToSemitones(token: string, quality: Quality): number {
   return base + 12 * (m[2].length - m[3].length)
 }
 
+/** "3'" on m7 -> "3m": the degree as a tonal interval, for spelling it. The octave marks do not matter. */
+export function degreeInterval(token: string, quality: Quality): string {
+  const n = Number(DEGREE_RE.exec(token)?.[1])
+  if (n === 3) return quality === 'm7' ? '3m' : '3M'
+  if (n === 7) return quality === 'maj7' ? '7M' : '7m'
+  if (n === 11) return quality === 'm7' ? '11P' : '11A'
+  return n === 9 || n === 13 ? `${n}M` : `${n}P`
+}
+
+/** The degrees each hand plays for a quality: the voicing's own, or its override. */
+export function voicingHands(voicing: Voicing, quality: Quality): Hands {
+  return voicing.byQuality?.[quality] ?? { lh: voicing.lh, rh: voicing.rh }
+}
+
 /** MIDI notes of the voicing, sorted. rootMidi = root (e.g. C3 = 48). */
 export function voicingToMidi(voicing: Voicing, quality: Quality, rootMidi: number): number[] {
-  return [...voicing.lh, ...voicing.rh]
+  const hands = voicingHands(voicing, quality)
+  return [...hands.lh, ...hands.rh]
     .map((d) => rootMidi + degreeToSemitones(d, quality))
     .sort((a, b) => a - b)
 }

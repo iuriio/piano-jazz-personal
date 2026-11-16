@@ -15,12 +15,41 @@ npm install && npm run dev
 Open it in **Chrome or Edge** (the Web MIDI API does not exist in Firefox/Safari) and grant MIDI access.
 
 - **Visualizer** — play anything and it shows the keyboard, the staff, the chord name, the intervals, and recognizes which voicing it is.
-- **Drill** — pick a voicing and a quality, and it asks for the chord in all 12 keys, validating note by note, exact octave.
+- **Drills** — four of them, picked at the top of the sidebar: intervals and seventh chords against a two-second clock, the 2-5-1 through all 12 keys, and the voicing drill (pick a voicing and a quality, and it asks for the chord in all 12 keys, validating note by note, in whatever octave you play it; a lone left-hand root may sit lower still).
 - **Shred** — speed exercises against a metronome, from beginner to advanced, with the BPM climbing gradually.
 
 The sustain pedal counts: a note released with the pedal down stays part of the chord, just like on a piano. To change chord, lift the pedal.
 
 The 10 voicings live in [`src/voicings.ts`](src/voicings.ts), written as degrees (`"3'"` = the third one octave up). To fix or add a voicing, edit only that table.
+
+## Drills
+
+The first three follow the order of a jazz piano lesson: count intervals, build the seventh chords, then run the 2-5-1 through every key. They live in [`src/drills/`](src/drills/).
+
+- **Intervals in 2s** — "minor 7th above F♯": play the note, any octave. The clock stops on the first note.
+- **7th chords in 2s** — a chord symbol, all 12 roots in random order. Root position, any octave; the clock stops when the last note lands. maj7, m7 and 7 are on by default (36 chords); ø, °7, m(maj7), 6, m6 and 7♯5 can be switched on.
+- **2-5-1 in 12 keys** — major or minor, in close position, shells or rootless voicings. The keys follow the lesson's walk: the one turns minor and becomes the two of the next key, and after six keys the two starts a half step up for the other six. Every chord is checked note for note, so the voice leading is part of the answer; the octave is yours to pick.
+
+The two speed drills build up **five questions at a time**, like a flashcard deck with spaced repetition ([`src/drills/focus.ts`](src/drills/focus.ts)):
+
+- The first five are five different things over one root — the major and minor 3rd, 5th, and minor and major 7th above C, i.e. the chord tones of C — then the same from F, G, D… The extensions (9th, 11th, ♯11) come after every chord tone from every root, and the rest (♭9, 13th, ♭13) last.
+- Every answer under two seconds moves a question up a step and pushes its next showing further away: 20 seconds, a minute, then 5 minutes, half an hour, a day, 3 days, a week, three weeks.
+- After three fast answers — the last one at least a minute after the second — the question is **known**: it leaves the focus, a new one comes in, and it only returns for review.
+- A miss starts the question over and brings it back within seconds; a right but slow answer sends it back into learning.
+- The sidebar shows what is in focus with its steps, and the panel next to the chord card is the map of every question: empty, faded while it is being learned, solid once known.
+
+Only the first answer to a question is recorded, and an answer that takes more than ten seconds is treated as you having stepped away, not as slow. `practice → everything, random` switches the build-up off and runs through everything switched on in random order, with a miss or a slow answer coming back a few questions later.
+
+In the 2-5-1, a **clean lap** is all 12 keys with the notes hidden and no wrong chord; three in a row is the bar for moving on. The shapes are a table in [`src/drills/twoFiveOne.ts`](src/drills/twoFiveOne.ts), written as semitones from the two chord's root so the voice leading is visible in the numbers. To fix or add a shape, edit only that table.
+
+### Without looking
+
+Two switches under the drill picker, for practising with your eyes on the keys:
+
+- **say the question** — the browser's own English voice says it: "F-sharp minor seven", "minor seventh above D-flat", each chord of the 2-5-1. In the timed drills the two seconds start when the voice has finished. It only ever says the question, and only with an English voice: a machine without one stays silent.
+- **sound for right and wrong** — a light two-note chime for an answer on the clock, a single note for right but slow, a soft low step down for wrong.
+
+The wording lives in [`src/drills/say.ts`](src/drills/say.ts) and the sounds in [`src/drills/cues.ts`](src/drills/cues.ts). After a reload the voice needs one click or computer key before it may speak; a MIDI key alone does not count as a gesture for the browser.
 
 ## Shred
 

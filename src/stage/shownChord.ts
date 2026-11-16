@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react'
-import { keyById, readChord, type BassSplit, type KeySig } from '../analysis'
+import { readChord, type BassSplit, type KeySig } from '../analysis'
+import { useStageKey } from './asked'
 import { snapshot } from './liveNotes'
 import { useStage } from './settings'
 
@@ -50,6 +51,7 @@ export function nextShownChord(
  */
 export function useShownChordNotes(): number[] {
   const { settings, settled } = useStage()
+  const key = useStageKey()
   const shownRef = useRef<number[]>([])
   const prevRef = useRef<number[]>([])
   // When the previous settled notes were taken in: a key down after this is a
@@ -58,7 +60,7 @@ export function useShownChordNotes(): number[] {
   const sinceRef = useRef(0)
 
   return useMemo(() => {
-    const opts = { key: keyById(settings.keyId), split: settings.split, splitPoint: settings.splitPoint }
+    const opts = { key: key, split: settings.split, splitPoint: settings.splitPoint }
     if (settled !== prevRef.current) {
       const t = performance.now()
       const { sounding, trail } = snapshot(t)
@@ -75,5 +77,5 @@ export function useShownChordNotes(): number[] {
       sinceRef.current = t
     }
     return shownRef.current
-  }, [settled, settings.keyId, settings.split, settings.splitPoint])
+  }, [settled, key, settings.split, settings.splitPoint])
 }

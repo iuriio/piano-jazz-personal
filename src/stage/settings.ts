@@ -14,12 +14,30 @@ export const MODES: Mode[] = ['free', 'voicings', 'shred']
 
 export const MODE_LABEL: Record<Mode, string> = {
   free: 'free play',
-  voicings: 'voicings',
+  // The id stays 'voicings' so a saved mode keeps working; the mode grew past them.
+  voicings: 'drills',
   shred: 'shred',
+}
+
+/** What the drills mode runs. */
+export type DrillId = 'voicing' | 'intervals' | 'sevenths' | 'ii-v-i'
+
+export const DRILLS: DrillId[] = ['intervals', 'sevenths', 'ii-v-i', 'voicing']
+
+export const DRILL_LABEL: Record<DrillId, string> = {
+  intervals: 'intervals in 2s',
+  sevenths: '7th chords in 2s',
+  'ii-v-i': '2-5-1 in 12 keys',
+  voicing: 'voicings',
 }
 
 export type StageSettings = {
   mode: Mode
+  drill: DrillId
+  /** Drills say the question out loud, to practise without looking at the screen. */
+  drillVoice: boolean
+  /** Drills play a short sound for right and wrong. */
+  drillCues: boolean
   keyId: string
   split: BassSplit
   splitPoint: number
@@ -34,6 +52,9 @@ export type StageSettings = {
 
 export const DEFAULT_STAGE: StageSettings = {
   mode: 'free',
+  drill: 'voicing',
+  drillVoice: false,
+  drillCues: false,
   keyId: 'C',
   split: 'off',
   splitPoint: 48,
@@ -64,6 +85,9 @@ export function loadStage(): StageSettings {
     return {
       ...s,
       mode: MODES.includes(s.mode) ? s.mode : 'free',
+      drill: DRILLS.includes(s.drill) ? s.drill : 'voicing',
+      drillVoice: s.drillVoice === true,
+      drillCues: s.drillCues === true,
       split: ['off', 'slash', 'apart'].includes(s.split) ? s.split : 'off',
       naming: ['exact', 'jazz', 'simple'].includes(s.naming) ? s.naming : 'exact',
       splitPoint: SPLIT_POINTS.some((p) => p.midi === s.splitPoint) ? s.splitPoint : 48,

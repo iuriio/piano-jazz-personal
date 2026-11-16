@@ -3,25 +3,13 @@ import { getAudioContext, getMasterBus, resumeAudio } from '../audio'
 import { schedulePianoTone, velocityToGain } from '../instrument'
 import { Transport, type Beat } from '../shred/clock'
 import { NEW_TRACK, estimateKey, keyLabel, sameKey, trackKey, type KeyTrack } from './keyEstimate'
-import { activityOf, heard, onAttack, soundingNow, startListening, stopListening } from './listener'
-import {
-  INITIAL,
-  OFFER_WINDOW_MS,
-  keyOptions,
-  reduce,
-  tempoOptions,
-  type Choice,
-  type Context,
-  type MachineEvent,
-  type MachineState,
-  type Phase,
-} from './machine'
+import { activityOf, heard, soundingNow, startListening, stopListening } from './listener'
+import { ACTIVITY_WINDOW_MS, INITIAL, reduce, type Choice, type Context, type MachineEvent, type MachineState, type Phase } from './machine'
 import { autoStyle, feel, patternFor, swingFor, swungAt, walkingLine, type BarPattern, type Hit, type Style } from './patterns'
-import { median, pcOf, rng, type PlayedNote } from './played'
+import { median, rng } from './played'
 import {
   lockThrough,
   planPhrase,
-  refineBar,
   renderPhrase,
   type Complexity,
   type Phrase,
@@ -29,12 +17,10 @@ import {
   type PlanKey,
   type Section,
 } from './progression'
-import { estimatePulse, isSteady, nextBeat, type Pulse } from './pulseEstimate'
-import { DEFAULT_ACCOMPANY, type AccompanySettings } from './settings'
+import { estimatePulse, isSteady, type Pulse } from './pulseEstimate'
+import { DEFAULT_ACCOMPANY, parseKey, type AccompanySettings } from './settings'
 import { avoidClashes, bassNote, registerFor, voice, voiceTones, type Register } from './voicing'
 import { schedulePadTone, scheduleBassTone } from './voices'
-import { createFollower, resumeFits, type Follower } from './follow'
-import { modulate } from './modulate'
 import { energyOf, spread } from './groove'
 import { DRUM_RING_BEATS, drumBar, kitVelocity, type DrumHit } from './drums'
 import { SampledInstrument } from '../sound/sampled'
@@ -61,6 +47,12 @@ const KIT_VOLUME = 100
 /** Reverb sends for the sampled parts, through the session's leased FX bus. */
 const KEYS_REVERB = 0.2
 const KIT_REVERB = 0.1
+/**
+ * Low cut on the band piano. Its voicings start at C3 (131 Hz, voicing.ts), so
+ * this costs the bottom voice ~2 dB and takes the samples' sub-60 Hz rumble out
+ * of the bass's way.
+ */
+const KEYS_LOW_CUT_HZ = 120
 
 export type SheetBar = { chords: { symbol: string; hold: boolean }[]; locked: boolean }
 export type SheetRow = {
@@ -78,30 +70,24 @@ export type PlayView = {
   key: PlanKey
   keyLabel: string
   bpm: number
-  free: boolean
   style: Style
-  tempo: AccompanySettings['tempo']
   rows: SheetRow[]
   /** Bar (0-3) inside the first row, and beat inside it. -1 before the first beat. */
   bar: number
   beat: number
   now: string | null
   next: string | null
-  waiting: boolean
 }
 
 export type AccompanyView = {
   phase: Phase
-  offer: { keyLabel: string; tempoLabel: string; free: boolean; keys: number; tempos: number } | null
-  /** What the ear makes of your playing right now, for the listening dot. */
+  /** What the ear makes of your playing right now: the key 'auto' would start in. */
   heard: { keyLabel: string | null; bpm: number | null; steady: boolean }
   play: PlayView | null
-  offers: boolean
 }
 
 type Session = {
   key: PlanKey
-  free: boolean
   bpm: number
   beatMs: number
   style: Style
@@ -131,16 +117,13 @@ type Session = {
   register: Register
   baseVel: number
   started: boolean
-  follower: Follower
   /** Your key, as the ear holds it while the band plays: a change has to win for two bars. */
   track: KeyTrack
-  /** A key change inside the current phrase: from which bar its remaining bars are in the new key. */
-  shift: { phrase: number; bar: number } | null
   /** Sampled band piano (null: the synth piano) and drum kit (null: no drums). */
   keys: SampledInstrument | null
   kit: SampledInstrument | null
   /** Where the sampled parts write: dry into `out`, and a send into the leased reverb. */
-  keysIn: GainNode
+  keysIn: AudioNode
   kitIn: GainNode
   wetSend: GainNode
   wetBus: FxBus | null
@@ -152,21 +135,18 @@ class Accompanist {
   private state: MachineState = INITIAL
   private context: Context = 'free'
   private settings: AccompanySettings = DEFAULT_ACCOMPANY
+  /** The page's key, for 'auto' before the ear has heard anything. */
+  private pageKey: PlanKey = { collectionPc: 0, center: 0, mode: 'major' }
   private timer: ReturnType<typeof setInterval> | null = null
   private bus: GainNode | null = null
   private session: Session | null = null
   private lastHeard: { key: ReturnType<typeof estimateKey>; pulse: Pulse | null } = { key: null, pulse: null }
   private view: AccompanyView = {
     phase: 'idle',
-    offer: null,
     heard: { keyLabel: null, bpm: null, steady: false },
     play: null,
-    offers: true,
   }
   private listeners = new Set<() => void>()
-  private unsubAttack: (() => void) | null = null
-  /** How the band comes back in after waiting, once your return is readable (see tick). */
-  private comeback: { first: number; beatMs: number } | null = null
 
   get connected(): boolean {
     return this.timer !== null
@@ -178,8 +158,6 @@ class Accompanist {
     if (this.timer) return
     startListening()
     this.timer = setInterval(() => this.tick(), TICK_MS)
-    // The follower hears each attack as it lands, outside the 250 ms tick.
-    this.unsubAttack = onAttack((t, _midi, v) => this.session?.follower.attack(t, v))
   }
 
   /**
@@ -189,6 +167,7 @@ class Accompanist {
   takeOver(old: Accompanist): void {
     this.context = old.context
     this.settings = old.settings
+    this.pageKey = old.pageKey
     this.bus = old.bus
     this.state = old.state
     this.lastHeard = old.lastHeard
@@ -209,16 +188,16 @@ class Accompanist {
   disconnect(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
-    this.unsubAttack?.()
-    this.unsubAttack = null
     this.teardown()
     stopListening()
   }
 
-  configure(context: Context, settings: AccompanySettings): void {
+  /** `pageKeyPc`: the major tonic of the page's key signature, for 'auto' before anything is heard. */
+  configure(context: Context, settings: AccompanySettings, pageKeyPc = 0): void {
     const prev = this.settings
     this.context = context
     this.settings = settings
+    this.pageKey = { collectionPc: pageKeyPc, center: pageKeyPc, mode: 'major' }
     if (this.bus) this.bus.gain.value = settings.level
     const s = this.session
     if (s) {
@@ -227,38 +206,38 @@ class Accompanist {
         // The phrase on screen as "next" is replanned; the one playing stays.
         s.next = planPhrase(s.next.key, s.next.index, this.planOpts(s))
       }
-      if (settings.tempo !== prev.tempo) s.follower.setLocked(settings.tempo === 'lock')
+      if (settings.bpm !== prev.bpm) {
+        // Your new tempo, from the next beat on.
+        s.bpm = settings.bpm
+        s.beatMs = 60000 / settings.bpm
+        s.transport.setBpm(settings.bpm)
+      }
       if (settings.keys !== prev.keys || settings.drums !== prev.drums) this.equip(s)
     }
     this.publish(true)
   }
 
-  // --- the offer -------------------------------------------------------------
+  // --- start and stop ---------------------------------------------------------
 
-  accept(): void {
+  /**
+   * Starts the band at your tempo, in the key the settings name, or with 'auto'
+   * the one it hears you in (the page's key before it has heard anything).
+   */
+  start(): void {
     // Inside the click: the browser lets audio start here.
     void resumeAudio()
-    this.dispatch({ type: 'accept', now: performance.now() })
-  }
-
-  dismiss(): void {
-    this.dispatch({ type: 'dismiss', now: performance.now() })
-  }
-
-  summon(): void {
-    this.dispatch({ type: 'summon', now: performance.now(), key: this.lastHeard.key, pulse: this.lastHeard.pulse })
-  }
-
-  cycleKey(): void {
-    this.dispatch({ type: 'cycleKey' })
-  }
-
-  cycleTempo(): void {
-    this.dispatch({ type: 'cycleTempo' })
+    this.dispatch({ type: 'start', choice: { key: this.startKey(), pulse: isSteady(this.lastHeard.pulse) ? this.lastHeard.pulse : null } })
   }
 
   stop(): void {
-    this.dispatch({ type: 'stop', now: performance.now() })
+    this.dispatch({ type: 'stop' })
+  }
+
+  private startKey(): PlanKey {
+    const fixed = this.settings.key === 'auto' ? null : parseKey(this.settings.key)
+    if (fixed) return fixed
+    const k = this.lastHeard.key
+    return k ? { collectionPc: k.collectionPc, center: k.center, mode: k.mode } : this.pageKey
   }
 
   // --- store -----------------------------------------------------------------
@@ -277,65 +256,14 @@ class Accompanist {
   private tick(): void {
     const now = performance.now()
     const played = heard(now)
-    const activity = activityOf(played, now, OFFER_WINDOW_MS)
-    const quiet = this.state.phase === 'idle' && activity.attacks === 0
+    const activity = activityOf(played, now, ACTIVITY_WINDOW_MS)
     // Nothing played in a while: no estimate to make, nothing to show.
-    const recent = quiet ? [] : played.filter((n) => now - n.on <= OFFER_WINDOW_MS)
+    const recent = activity.attacks === 0 ? [] : played.filter((n) => now - n.on <= ACTIVITY_WINDOW_MS)
     const key = recent.length ? estimateKey(played, now) : null
     const pulse = recent.length ? estimatePulse(recent) : null
     this.lastHeard = { key, pulse }
     if (this.session && this.state.phase === 'playing') this.followKey(this.session, key, now)
-    const barMs = (this.session?.beatMs ?? pulse?.beatMs ?? 600) * 4
-    const resume = this.session && this.state.phase === 'waiting' ? this.readComeback(this.session, played) : undefined
-    this.dispatch({
-      type: 'tick',
-      now,
-      context: this.context,
-      offers: this.settings.offers,
-      transportRunning: false, // shred's transport is not published yet (phase 7)
-      activity,
-      key,
-      pulse,
-      barMs,
-      resume,
-    })
-  }
-
-  /**
-   * After a pause: whether your return can be read yet, and how the band should
-   * come back in. Your first attacks back are checked against the band's grid
-   * (resumeFits): in time, it picks up at its old tempo; at another tempo, the
-   * pulse is estimated from them and it starts again at that one; too few to
-   * say, it keeps waiting. With the tempo locked it never re-tempos.
-   */
-  private readComeback(s: Session, played: PlayedNote[]): boolean {
-    this.comeback = null
-    const since = played.filter((n) => n.on > this.state.waitingSince)
-    if (since.length === 0) return false
-    const times = since.map((n) => n.on).sort((a, b) => a - b)
-    const first = times[0]
-    if (s.free) {
-      this.comeback = { first, beatMs: s.beatMs }
-      return true
-    }
-    const fits = resumeFits(times, s.beatMs)
-    if (fits === null) return false
-    if (fits || this.settings.tempo === 'lock') {
-      this.comeback = { first, beatMs: s.beatMs }
-      return true
-    }
-    const p = estimatePulse(since)
-    if (!p) return false
-    // A shaky reading waits for a few more notes; past a dozen, take it anyway.
-    if (!isSteady(p) && mergedCount(times) < 12) return false
-    // The metric level nearest the old one: a band at 120 that hears you at 90
-    // goes to 90, not to the 180 the same notes also fit.
-    const beatMs = [p.beatMs, p.beatMs / 2, p.beatMs * 2].reduce((b, x) =>
-      Math.abs(Math.log(x / s.beatMs)) < Math.abs(Math.log(b / s.beatMs)) ? x : b,
-    )
-    // Your first note back was a beat, at the new tempo.
-    this.comeback = { first, beatMs }
-    return true
+    this.dispatch({ type: 'tick', context: this.context })
   }
 
   private dispatch(e: MachineEvent): void {
@@ -345,9 +273,7 @@ class Accompanist {
     const to = this.state.phase
     if (from !== to) {
       if (to === 'starting' && this.state.choice) void this.begin(this.state.choice)
-      if (to === 'waiting') this.pause()
-      if (to === 'playing' && from === 'waiting') this.resume()
-      if ((to === 'listening' || to === 'idle') && this.session) this.teardown()
+      if (to === 'idle' && this.session) this.teardown()
     }
     this.publish(from !== to || e.type !== 'tick')
   }
@@ -371,8 +297,7 @@ class Accompanist {
     return { seed: s.seed, density: d === 'auto' ? s.densityAuto : d === '2' ? (2 as const) : (1 as const), beatsPerBar: 4 }
   }
 
-  private resolveStyle(s: Pick<Session, 'free' | 'heardStyle'>): Style {
-    if (s.free) return 'pad'
+  private resolveStyle(s: Pick<Session, 'heardStyle'>): Style {
     return this.settings.style === 'auto' ? s.heardStyle : this.settings.style
   }
 
@@ -381,14 +306,14 @@ class Accompanist {
     const ctx = getAudioContext()
     const now = performance.now()
     const played = heard(now)
+    // Your feel (swing) comes from what it heard; the tempo is only ever yours.
     const pulse = choice.pulse
-    const free = !pulse
-    const bpm = pulse?.bpm ?? 60
+    const bpm = this.settings.bpm
     const beatMs = 60000 / bpm
-    const activity = activityOf(played, now, OFFER_WINDOW_MS)
+    const activity = activityOf(played, now, ACTIVITY_WINDOW_MS)
     const rate = activity.activeMs > 0 ? activity.attacks / (activity.activeMs / 1000) : 0
-    const densityAuto: 1 | 2 = free || rate < 1.5 || bpm > 160 ? 2 : 1
-    const heardStyle = autoStyle(free ? null : bpm, !!pulse?.swung)
+    const densityAuto: 1 | 2 = rate < 1.5 || bpm > 160 ? 2 : 1
+    const heardStyle = autoStyle(bpm, !!pulse?.swung)
     const seed = Math.floor(Math.random() * 2 ** 31)
 
     const out = ctx.createGain()
@@ -397,7 +322,10 @@ class Accompanist {
     // The sampled parts' inputs: dry into out, and each a send into one wet
     // node that follows the leased reverb (see wet()).
     const wetSend = ctx.createGain()
-    const keysIn = ctx.createGain()
+    const keysIn = ctx.createBiquadFilter()
+    keysIn.type = 'highpass'
+    keysIn.frequency.value = KEYS_LOW_CUT_HZ
+    keysIn.Q.value = Math.SQRT1_2
     const kitIn = ctx.createGain()
     for (const [node, send] of [
       [keysIn, KEYS_REVERB],
@@ -414,7 +342,6 @@ class Accompanist {
     const base = { seed, densityAuto }
     const s: Session = {
       key: choice.key,
-      free,
       bpm,
       beatMs,
       style: 'pad',
@@ -443,9 +370,7 @@ class Accompanist {
       // Half-ish of your touch: the band sits under you.
       baseVel: Math.round(0.55 * (median(played.slice(-40).map((n) => n.velocity)) || 70)),
       started: false,
-      follower: createFollower({ beatMs, locked: this.settings.tempo === 'lock' }),
       track: NEW_TRACK,
-      shift: null,
       keys: null,
       kit: null,
       keysIn,
@@ -460,8 +385,8 @@ class Accompanist {
     this.session = s
     this.equip(s)
 
-    // On your beat: the next one the pulse predicts, far enough ahead to schedule.
-    const first = pulse ? nextBeat(pulse, now + 150) : now + 150
+    // Bar one right away, at your tempo: you come in on the band.
+    const first = now + 150
     transport.onBeat = (b) => this.onBeat(s, b)
     await transport.start({ bpm, beatsPerBar: 4, countInBars: 0, clicks: false, startAt: transport.perfToAudio(first) })
     // Stopped while the audio was waking up: this transport must not keep ticking.
@@ -469,18 +394,15 @@ class Accompanist {
       transport.stop()
       return
     }
-    s.follower.anchor(first)
     this.publish(true)
   }
 
   /**
-   * You changed key. As soon as the ear's tracker moves (trackKey: one to two
-   * bars of the new key's notes), the bars of this phrase that have not
-   * started are planned again in it, from the next bar, with a ii–V into it
-   * when there is room (modulate.ts), and the phrase after it too. The chart
-   * shows the change at once, on the bar where it starts. A bar that has
-   * started keeps its chord. Going back (it was only a tonicization) plans the
-   * old key back the same way.
+   * You changed key. The ear's tracker (trackKey: one to two bars of the new
+   * key's notes) holds what you are in; nothing on the chart changes for it.
+   * The next phrase to be planned is planned in it (see enterBar), so a key
+   * change shows up four bars before it plays, marked "→ key", and what is on
+   * screen always plays as shown.
    */
   private followKey(s: Session, key: ReturnType<typeof estimateKey>, now: number): void {
     if (!key) return
@@ -489,70 +411,13 @@ class Accompanist {
       s.track = { current: { ...key, collectionPc: s.key.collectionPc, center: s.key.center, mode: s.key.mode }, challenger: null, since: now }
     }
     s.track = trackKey(s.track, key, now, 8 * s.beatMs)
-    if (!this.settings.followKey) return
-    const heardKey = s.track.current!
-    const to: PlanKey = { collectionPc: heardKey.collectionPc, center: heardKey.center, mode: heardKey.mode }
-    if (this.replan(s, to)) this.publish(true)
   }
 
-  /** Plans every bar not yet started in `to`. False when they already are. */
-  private replan(s: Session, to: PlanKey): boolean {
-    const from = s.barInPhrase + 1
-    const currentLeft = from < 4 && !sameKey(s.current.key, to)
-    if (!currentLeft && sameKey(s.next.key, to)) return false
-    const opts = this.planOpts(s)
-    if (currentLeft) {
-      if (from === 0) {
-        // Nothing has played yet: the whole phrase, and the band is in the new key now.
-        s.current = planPhrase(to, s.current.index, opts)
-        s.key = to
-        s.shift = null
-      } else {
-        // Back to the key the band is still in: no ii–V, just its plan again.
-        const lead = !sameKey(s.key, to)
-        s.current = modulate(s.current, from, to, opts, lead)
-        s.shift = lead ? { phrase: s.current.index, bar: from } : null
-      }
-    }
-    s.next = planPhrase(to, s.next.index, opts)
-    this.lookAhead(s)
-    return true
-  }
-
-  private pause(): void {
-    const s = this.session
-    if (!s) return
-    // The chord in the air rings out; nothing new is scheduled; the chart keeps its place.
-    s.transport.stop()
-    this.publish(true)
-  }
-
-  private resume(): void {
-    const s = this.session
-    if (!s) return
-    const back = this.comeback ?? { first: performance.now(), beatMs: s.beatMs }
-    this.comeback = null
-    if (back.beatMs !== s.beatMs) {
-      // You came back at another tempo: the band takes it, and its follower starts over there.
-      s.beatMs = back.beatMs
-      s.bpm = 60000 / back.beatMs
-      s.follower = createFollower({ beatMs: back.beatMs, locked: this.settings.tempo === 'lock' })
-    }
-    // Your first note back was a beat: start on the next one after now, on that grid.
-    const now = performance.now()
-    const n = Math.max(1, Math.ceil((now + 80 - back.first) / s.beatMs))
-    const first = back.first + n * s.beatMs
-    s.follower.anchor(back.first)
-    // The attacks since then are yours on the new grid: the follower hears them too.
-    for (const note of heard(now)) if (note.on >= back.first) s.follower.attack(note.on, note.velocity)
-    void s.transport.start({
-      bpm: s.bpm,
-      beatsPerBar: 4,
-      countInBars: 0,
-      clicks: false,
-      startAt: s.transport.perfToAudio(first),
-    })
-    this.publish(true)
+  /** The key the next phrase is planned in: yours, if the band follows you, else its own. */
+  private planKey(s: Session): PlanKey {
+    const t = s.track.current
+    if (!this.settings.followKey || !t) return s.key
+    return { collectionPc: t.collectionPc, center: t.center, mode: t.mode }
   }
 
   private teardown(): void {
@@ -627,18 +492,6 @@ class Accompanist {
     if (b.beatInBar === 0) this.enterBar(s)
     this.scheduleBeat(s, b)
 
-    // Tempo following: the follower may have moved the grid since the last beat.
-    // Free time has no grid of yours to follow.
-    if (!s.free) {
-      const adj = s.follower.adjust(b.perfTime)
-      if (adj.nudgeMs) s.transport.nudge(adj.nudgeMs)
-      if (adj.beatMs !== s.beatMs) {
-        s.beatMs = adj.beatMs
-        s.bpm = 60000 / adj.beatMs
-        s.transport.setBpm(s.bpm)
-      }
-    }
-
     // The view moves when the beat sounds, not when it is scheduled ~100 ms early.
     const delay = Math.max(0, b.perfTime - performance.now())
     setTimeout(() => {
@@ -646,7 +499,7 @@ class Accompanist {
       s.beatInBar = b.beatInBar
       if (!s.started) {
         s.started = true
-        this.dispatch({ type: 'started', now: performance.now() })
+        this.dispatch({ type: 'started' })
       }
       this.publish(true)
     }, delay)
@@ -660,17 +513,12 @@ class Accompanist {
       s.current = s.next
       // A modulation lands here: the band is in the new key from this phrase on.
       s.key = s.current.key
-      s.next = planPhrase(s.key, s.current.index + 1, this.planOpts(s))
+      // The phrase that comes on screen now plays four bars from now, as shown.
+      s.next = planPhrase(this.planKey(s), s.current.index + 1, this.planOpts(s))
       s.barInPhrase = 0
-      s.shift = null
     }
-    // A change mid-phrase: the band is in the new key from its first bar.
-    if (s.shift && s.shift.phrase === s.current.index && s.barInPhrase >= s.shift.bar) s.key = s.current.key
     const c = this.settings.complexity
-
-    // What you played over the last bar can recolour this one (same function).
     const played = heard(now)
-    s.current = refineBar(s.current, s.barInPhrase, weightsSince(played, now - 4 * s.beatMs))
     const rendered = renderPhrase(s.current, c, s.seed, s.next)
     s.current = lockThrough(s.current, s.barInPhrase, rendered)
     s.barChords = rendered[s.barInPhrase]
@@ -682,7 +530,7 @@ class Accompanist {
     s.drums = s.kit
       ? drumBar({
           style: s.style,
-          free: s.free,
+          free: false,
           phrase: s.current.index,
           bar: s.barInPhrase,
           barCount: s.barCount,
@@ -703,9 +551,7 @@ class Accompanist {
 
   /**
    * What this bar leans toward: the next bar's first chord, for the piano's
-   * anticipation and the walking line's approach note. Redone when the plan
-   * changes under a bar already playing (a key change), so the bar heads into
-   * the new chord rather than the one it replaced.
+   * anticipation and the walking line's approach note.
    */
   private lookAhead(s: Session): void {
     if (s.barInPhrase < 0 || !s.barChords.length) return
@@ -794,7 +640,7 @@ class Accompanist {
           // The sampled piano takes the real velocity: its layers and curve
           // carry the ghosts and accents velocityToGain's floor would flatten.
           if (keys) keys.start({ note: n.midi, velocity: n.velocity, time: at, duration: dur })
-          else schedulePianoTone(ctx, s.out, n.midi, at, dur, velocityToGain(n.velocity) * 0.9)
+          else schedulePianoTone(ctx, s.keysIn, n.midi, at, dur, velocityToGain(n.velocity) * 0.9)
         }
         if (keys) this.wet(s, when + dur + 1)
       }
@@ -805,7 +651,8 @@ class Accompanist {
     else if (hit.what === 'fifth') midi = bassNote((chord.root + 7) % 12, s.register.bass, s.prevBass)
     else midi = bassNote(chord.root, s.register.bass, s.prevBass)
     s.prevBass = midi
-    scheduleBassTone(ctx, s.out, midi, when, dur, gain * 1.1)
+    // Lighter when you play your own bass notes (voicing.ts registerFor).
+    scheduleBassTone(ctx, s.out, midi, when, dur, gain * 1.1 * s.register.bassLevel)
   }
 
   // --- view ------------------------------------------------------------------
@@ -827,37 +674,18 @@ class Accompanist {
       steady: isSteady(p),
     }
 
-    let offer: AccompanyView['offer'] = null
-    if (st.phase === 'offer' && st.offer && st.choice) {
-      const tempo = st.choice.pulse
-      offer = {
-        keyLabel: keyLabel(st.choice.key),
-        tempoLabel: tempo ? `~${Math.round(tempo.bpm)}` : 'free time',
-        free: !tempo,
-        keys: keyOptions(st.offer.key).length,
-        tempos: tempoOptions(st.offer.pulse).length,
-      }
-    }
-
     const s = this.session
     let play: PlayView | null = null
     if (s) {
       const c = this.settings.complexity as Complexity
       const cur = renderPhrase(s.current, c, s.seed, s.next)
       const nxt = renderPhrase(s.next, c, s.seed)
-      const shifted = s.shift && s.shift.phrase === s.current.index ? s.shift.bar : -1
       const row = (ph: Phrase, r: PlanChord[][], planned: boolean): SheetRow => ({
         index: ph.index,
         section: ph.section,
         planned,
-        to: planned
-          ? sameKey(ph.key, s.current.key)
-            ? null
-            : keyLabel(ph.key)
-          : shifted >= 0
-            ? keyLabel(ph.key)
-            : null,
-        toBar: planned ? 0 : Math.max(0, shifted),
+        to: planned && !sameKey(ph.key, s.current.key) ? keyLabel(ph.key) : null,
+        toBar: 0,
         bars: r.map((bar, i) => ({
           chords: bar.map((ch) => ({ symbol: ch.symbol, hold: ch.hold })),
           locked: !!ph.bars[i].locked,
@@ -871,48 +699,22 @@ class Accompanist {
         key: s.key,
         keyLabel: keyLabel(s.key),
         bpm: Math.round(s.bpm),
-        free: s.free,
         style: s.style,
-        tempo: this.settings.tempo,
         rows: [row(s.current, cur, false), row(s.next, nxt, true)],
         bar,
         beat,
         now: nowChord?.symbol ?? null,
         next: nextChord?.symbol ?? null,
-        waiting: st.phase === 'waiting',
       }
     }
-    return { phase: st.phase, offer, heard: heardView, play, offers: this.settings.offers }
+    return { phase: st.phase, heard: heardView, play }
   }
-}
-
-/** Pitch-class weights of what you played since `from`: what the live swap listens to. */
-function weightsSince(played: PlayedNote[], from: number): number[] {
-  const w = new Array(12).fill(0)
-  for (const n of played) {
-    if (n.on < from) continue
-    w[pcOf(n.midi)] += 1
-  }
-  return w
-}
-
-/** Attacks in a list of note-on times, notes of a chord counted once. */
-function mergedCount(times: number[]): number {
-  let n = 0
-  let last = Number.NEGATIVE_INFINITY
-  for (const t of times) {
-    if (t - last >= 50) n++
-    last = t
-  }
-  return n
 }
 
 function sameView(a: AccompanyView, b: AccompanyView): boolean {
   return (
     a.phase === b.phase &&
-    a.offers === b.offers &&
     JSON.stringify(a.play) === JSON.stringify(b.play) &&
-    JSON.stringify(a.offer) === JSON.stringify(b.offer) &&
     a.heard.keyLabel === b.heard.keyLabel &&
     a.heard.bpm === b.heard.bpm &&
     a.heard.steady === b.heard.steady
@@ -924,9 +726,9 @@ export const accompanist = new Accompanist()
 // A Vite hot update re-runs this module whenever it, or anything it imports
 // (the estimators, the listener, the planner), changes, and so makes a new
 // band. The views pick the new one up, but AccompanyHost's mount effect does
-// not run again: the old band went on listening and offering into a view
-// nobody read, and the new one, the one on screen, never heard a note — no
-// offer, not even the listening dot, until a reload. The new band takes over.
+// not run again: the old band went on listening into a view nobody read, and
+// the new one, the one on screen, never heard a note until a reload. The new
+// band takes over.
 if (import.meta.hot) {
   const old = import.meta.hot.data.accompanist as Accompanist | undefined
   if (old && old !== accompanist) accompanist.takeOver(old)

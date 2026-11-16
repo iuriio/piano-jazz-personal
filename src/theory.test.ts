@@ -4,11 +4,15 @@ import {
   compareToTarget,
   detectChord,
   detectVoicing,
+  handNotes,
   midiToName,
   midiToVexKey,
+  placeTarget,
+  placeVoicing,
   sameSet,
 } from './theory'
 import { applyMidiMessage, newKeys, sounding } from './midi'
+import { tradeShells } from './stats'
 
 const C3 = 48
 
@@ -37,6 +41,26 @@ describe('degrees', () => {
 describe('voicingToMidi', () => {
   it('Rootless A on Cm7 = C3 Eb4 G4 Bb4 D5', () => {
     expect(voicingToMidi(v('rootless-a'), 'm7', C3)).toEqual([48, 63, 67, 70, 74])
+  })
+
+  it('names the shells like the lesson: A has the third below, B the seventh', () => {
+    expect(voicingToMidi(v('shell-a'), 'm7', C3)).toEqual([48, 51, 58]) // C3 / Eb3 Bb3
+    expect(voicingToMidi(v('shell-b'), 'm7', C3)).toEqual([48, 58, 63]) // C3 / Bb3 Eb4
+    expect(v('shell-a').label).toBe('Shell A')
+    expect(v('shell-b').label).toBe('Shell B')
+  })
+
+  it('a rootless dominant plays the 13th where the fifth would be', () => {
+    expect(voicingToMidi(v('rootless-a'), '7', C3)).toEqual([48, 64, 69, 70, 74]) // C3 / E4 A4 Bb4 D5
+    expect(voicingToMidi(v('rootless-b'), '7', C3)).toEqual([48, 58, 62, 64, 69]) // C3 / Bb3 D4 E4 A4
+    // the other qualities keep the fifth
+    expect(voicingToMidi(v('rootless-a'), 'maj7', C3)).toEqual([48, 64, 67, 71, 74])
+    expect(voicingToMidi(v('rootless-b'), 'm7', C3)).toEqual([48, 58, 62, 63, 67])
+  })
+
+  it('names the hands from the same shape it plays', () => {
+    expect(handNotes(v('rootless-a'), '7', C3)).toEqual({ lh: ['C3'], rh: ['E4', 'A4', 'Bb4', 'D5'] })
+    expect(handNotes(v('rootless-a'), 'm7', C3)).toEqual({ lh: ['C3'], rh: ['Eb4', 'G4', 'Bb4', 'D5'] })
   })
 
   it('Kenny Barron on Cm7 = C3 G3 D4 / Eb4 Bb4 F5', () => {
@@ -281,5 +305,81 @@ describe('major chord naming', () => {
   it('leaves augmented and diminished alone', () => {
     expect(first([C3, C3 + 4, C3 + 8])).toBe('Caug')
     expect(first([C3, C3 + 3, C3 + 6])).toBe('Cdim')
+  })
+})
+
+describe('scores after the shells traded names', () => {
+  const e = (n: number) => ({ attempts: n, correct: n, totalMs: n * 1000 })
+
+  it('move with their shape and leave the rest alone', () => {
+    const before = { 'shell-a': { 0: e(1) }, 'shell-b': { 5: e(2) }, open: { 7: e(3) } }
+    expect(tradeShells(before)).toEqual({ 'shell-a': { 5: e(2) }, 'shell-b': { 0: e(1) }, open: { 7: e(3) } })
+  })
+
+  it('copes with only one of the two having a score, or neither', () => {
+    expect(tradeShells({ 'shell-b': { 0: e(1) } })).toEqual({ 'shell-a': { 0: e(1) } })
+    expect(tradeShells({ 'shell-a': { 0: e(1) } })).toEqual({ 'shell-b': { 0: e(1) } })
+    expect(tradeShells({})).toEqual({})
+  })
+})
+
+describe('a voicing counts in any octave', () => {
+  const shell = VOICING_BY_ID.get('shell-a')!
+  const barron = VOICING_BY_ID.get('kenny-barron')!
+  const home = voicingToMidi(shell, 'm7', 48) // C3 / Eb3 Bb3
+
+  it('with nothing played, or nothing in common, it is the target as written', () => {
+    expect(placeVoicing([], shell, 'm7', 48)).toEqual(home)
+    expect(placeVoicing([61, 62], shell, 'm7', 48)).toEqual(home)
+  })
+
+  it('follows the whole shape up or down by octaves', () => {
+    for (const k of [-24, -12, 12, 24]) {
+      const played = home.map((n) => n + k)
+      expect(compareToTarget(played, placeVoicing(played, shell, 'm7', 48)).exact).toBe(true)
+    }
+  })
+
+  it('lets a lone bass root sit lower than the rest, but not above it', () => {
+    const low = [24, 51, 58] // C1 under Eb3 Bb3
+    expect(compareToTarget(low, placeVoicing(low, shell, 'm7', 48)).exact).toBe(true)
+    const above = [51, 58, 60]
+    expect(compareToTarget(above, placeVoicing(above, shell, 'm7', 48)).exact).toBe(false)
+  })
+
+  it('does not accept another shape of the same notes', () => {
+    const shellB = [48, 58, 63] // C / Bb Eb: position B
+    expect(compareToTarget(shellB, placeVoicing(shellB, shell, 'm7', 48)).exact).toBe(false)
+  })
+
+  it('a left hand that plays part of the shape moves with it', () => {
+    const t = voicingToMidi(barron, 'm7', 48)
+    const down = t.map((n) => n - 12)
+    expect(compareToTarget(down, placeVoicing(down, barron, 'm7', 48)).exact).toBe(true)
+    const split = [...t.slice(0, 3).map((n) => n - 12), ...t.slice(3)]
+    expect(compareToTarget(split, placeVoicing(split, barron, 'm7', 48)).exact).toBe(false)
+  })
+
+  it('a chord still being built is measured against the octave it is in', () => {
+    // Two right notes an octave up: the missing one is the root up there, or wherever it fits under them.
+    const c = compareToTarget([63, 70], placeVoicing([63, 70], shell, 'm7', 48))
+    expect(c.correct).toEqual([63, 70])
+    expect(c.missing).toEqual([60])
+  })
+
+  it('stays on the piano', () => {
+    expect(placeTarget([200], [60, 64, 67])).toEqual([60, 64, 67])
+  })
+})
+
+describe('lead sheet names', () => {
+  it('writes the black keys as Db Eb F# Ab Bb', () => {
+    expect([61, 63, 66, 68, 70].map((n) => midiToName(n, 'lead'))).toEqual(['Db4', 'Eb4', 'F#4', 'Ab4', 'Bb4'])
+  })
+
+  it('names the notes of a voicing as the degrees they are', () => {
+    const rootless = VOICING_BY_ID.get('rootless-a')!
+    // F#m7: A C# E G#, not A Db E Ab.
+    expect(handNotes(rootless, 'm7', 54, 'lead')).toEqual({ lh: ['F#3'], rh: ['A4', 'C#5', 'E5', 'G#5'] })
   })
 })

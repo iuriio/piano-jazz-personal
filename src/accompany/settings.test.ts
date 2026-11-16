@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { ACCOMPANY_DRUMS_OPTIONS, ACCOMPANY_KEYS_OPTIONS, DEFAULT_ACCOMPANY, validAccompany } from './settings'
+import {
+  ACCOMPANY_DRUMS_OPTIONS,
+  ACCOMPANY_KEYS_OPTIONS,
+  BPM_MAX,
+  BPM_MIN,
+  DEFAULT_ACCOMPANY,
+  FIXED_KEYS,
+  parseKey,
+  validAccompany,
+} from './settings'
 
 describe('validAccompany', () => {
   it('falls back to the defaults for missing or broken storage', () => {
@@ -8,13 +17,27 @@ describe('validAccompany', () => {
   })
 
   it('keeps what is valid and replaces what is not, field by field', () => {
-    const v = validAccompany({ offers: false, style: 'walk', complexity: 9, density: '2', tempo: 'drift', level: 2 })
-    expect(v.offers).toBe(false)
+    const v = validAccompany({ key: '7:minor', style: 'walk', complexity: 9, density: '2', bpm: 'fast', level: 2 })
+    expect(v.key).toBe('7:minor')
     expect(v.style).toBe('walk')
     expect(v.complexity).toBe(DEFAULT_ACCOMPANY.complexity)
     expect(v.density).toBe('2')
-    expect(v.tempo).toBe(DEFAULT_ACCOMPANY.tempo)
+    expect(v.bpm).toBe(DEFAULT_ACCOMPANY.bpm)
     expect(v.level).toBe(DEFAULT_ACCOMPANY.level)
+  })
+
+  it('keeps the tempo in range and drops keys it cannot read', () => {
+    expect(validAccompany({ bpm: 400 }).bpm).toBe(BPM_MAX)
+    expect(validAccompany({ bpm: 10 }).bpm).toBe(BPM_MIN)
+    expect(validAccompany({ bpm: 101.6 }).bpm).toBe(102)
+    expect(validAccompany({ key: '12:major' }).key).toBe('auto')
+    expect(validAccompany({ key: 'C' }).key).toBe('auto')
+  })
+
+  it('reads a fixed key, minor through its relative major', () => {
+    expect(parseKey('9:minor')).toEqual({ center: 9, mode: 'minor', collectionPc: 0 })
+    expect(FIXED_KEYS).toHaveLength(24)
+    expect(FIXED_KEYS[0].label).toBe('C major')
   })
 
   it('validates the band piano and the drums', () => {

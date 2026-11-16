@@ -2455,139 +2455,69 @@ kbd {
   outline-offset: 2px;
 }
 
-/* Listening: a 4 px square, still. It only gets a shade lighter once the ear has a key. */
-.acc-dot {
-  position: relative;
-  width: 14px;
-  height: 14px;
-}
-
-.acc-dot::after {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  background: var(--ghost);
-}
-
-.acc-dot.heard::after {
-  background: var(--dim);
-}
-
-.acc-dot:hover::after {
-  background: var(--fg-soft);
-}
-
-.acc-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 20;
-  display: grid;
-  gap: 10px;
-  min-width: 230px;
-  padding: 12px 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--fg-soft);
-}
-
-.acc-menu-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.acc-badge .acc-menu-go {
-  justify-self: start;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
+/* The controls: start/stop in the foreground, key and tempo beside it. */
+.acc-badge .acc-go {
   color: var(--fg);
+  font-weight: 700;
 }
 
-.acc-badge .acc-menu-go:hover:not(:disabled) {
-  border-color: var(--accent);
+.acc-badge .acc-go:hover {
   color: var(--accent);
 }
 
-.acc-badge .acc-menu-go:disabled {
-  color: var(--ghost);
-  cursor: default;
+.acc-on .acc-go {
+  color: var(--accent);
 }
 
-.acc-menu-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--dim);
-}
-
-/* The offer: one hairline box, faded in once, then perfectly still. */
-.acc-offer {
-  gap: 6px;
-  padding: 1px 2px 1px 8px;
-  border: 1px solid var(--accent-deep);
-  animation: acc-in 600ms ease-out both;
-}
-
-@keyframes acc-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.acc-bracket,
 .acc-sep {
   color: var(--ghost);
 }
 
-.acc-offer .acc-bracket {
-  display: none; /* the box already brackets it; kept for screen-reader-free copy/paste */
-}
-
-.acc-badge .acc-accept {
-  color: var(--fg);
-  font-weight: 700;
-}
-
-.acc-badge .acc-choice {
+.acc-key {
   color: var(--fg-soft);
-  border-bottom: 1px dotted var(--border-hover);
 }
 
-.acc-badge .acc-choice:disabled {
-  border-bottom-color: transparent;
+.acc-bpm-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.acc-bpm {
+  min-width: 7ch;
+  text-align: center;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.acc-unit {
+  color: var(--dim);
+}
+
+.acc-badge .acc-step {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border);
+  line-height: 1;
+  color: var(--fg-soft);
+  touch-action: none;
+}
+
+.acc-badge .acc-step:hover:not(:disabled),
+.acc-badge .acc-tap:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.acc-badge .acc-step:disabled {
+  color: var(--ghost);
   cursor: default;
 }
 
-.acc-badge .acc-accept:hover,
-.acc-badge .acc-choice:hover:not(:disabled) {
-  color: var(--accent);
-}
-
-.acc-badge .acc-x {
+.acc-badge .acc-tap {
   padding: 0 6px;
-  color: var(--dim);
-  font-size: 14px;
-  line-height: 1;
-}
-
-.acc-badge .acc-x:hover,
-.acc-badge .acc-stop:hover {
-  color: var(--fg);
-}
-
-/* Playing: the chord now in the accent, the next one dim, the beat as four squares. */
-.acc-now {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.acc-next,
-.acc-bpm,
-.acc-wait {
+  height: 18px;
+  border: 1px solid var(--border);
   color: var(--dim);
 }
 
@@ -2610,10 +2540,13 @@ kbd {
   border-color: var(--fg-soft);
 }
 
-.acc-badge .acc-stop {
-  padding: 0 2px;
-  color: var(--dim);
-  font-size: 11px;
+@keyframes acc-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ---- the chart ------------------------------------------------------------- */
@@ -2674,10 +2607,6 @@ kbd {
 .ls-bar.now {
   background: var(--line);
   box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.ls-bar.now.waiting {
-  box-shadow: inset 2px 0 0 var(--dim);
 }
 
 .ls-chords {
@@ -2743,23 +2672,11 @@ kbd {
   width: 84px;
 }
 
-.ls-seg button {
-  padding: 1px 8px;
-  font-size: 11px;
-  text-transform: none;
-}
-
-.ls-seg button + button {
-  margin-left: -1px;
-}
-
 @media (max-width: 640px) {
-  /* The topbar wraps: the badge keeps only chord, next chord and stop. */
-  .acc-badge {
-    margin-left: 0;
-  }
+  /* Narrow: the tap button and the beat go, the controls stay. */
   .acc-beats,
-  .acc-bpm {
+  .acc-tap,
+  .acc-unit {
     display: none;
   }
   .ls-grid {
@@ -2784,7 +2701,7 @@ kbd {
 }
 /* ==== end accompany ========================================================== */
 
-/* The accompany badge is a quiet hint just above the chord card, outside it. */
+/* The band's controls sit just above the chord card, outside it, always there. */
 .card-row {
   position: relative;
 }
@@ -2794,9 +2711,6 @@ kbd {
   left: 0;
   z-index: 5;
   margin: 0;
-  min-height: 0;
-  font-size: 11px;
-  color: var(--dim);
 }
 
 /* ==== motion ====================================================================
@@ -2824,7 +2738,7 @@ button {
 
 /* A press gives a little. Not on joined segments (their shared hairlines would
    wobble), nor on controls whose box something else measures or animates. */
-button:active:not(:disabled):not(.ui-select):not(.ui-switch):not(.acc-dot):not(.seg button):not(.ls-seg button) {
+button:active:not(:disabled):not(.ui-select):not(.ui-switch):not(.acc-step):not(.seg button) {
   transform: scale(0.97);
 }
 
@@ -2832,9 +2746,6 @@ a {
   transition: color 140ms var(--ease-out);
 }
 
-.acc-dot::after {
-  transition: background-color 140ms var(--ease-out);
-}
 
 /* ---- the stage -------------------------------------------------------------- */
 
@@ -2966,3 +2877,239 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ==== drills ==================================================================
+   The speed drills (intervals, seventh chords) and the 2-5-1. They reuse the
+   prompt strip and the panels; only what is new to them lives here. */
+
+/* The verdict sits at the far end of the strip. It is wrapped in a Swap, so the
+   wrapper is what gets pushed. */
+.prompt > .swap.at-end {
+  margin-left: auto;
+}
+
+.prompt.speed {
+  position: relative;
+}
+
+.prompt.slow {
+  border-left-color: var(--warn);
+}
+
+.prompt.slow .verdict {
+  color: var(--warn);
+}
+
+.ask-dim {
+  color: var(--dim);
+  font-weight: 400;
+}
+
+/* The two seconds, running out along the bottom of the strip. It stops where
+   you answered. */
+.goal-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--border-hover);
+  transform-origin: left;
+  animation: goal-run 2s linear forwards;
+}
+
+.goal-bar.stopped {
+  animation-play-state: paused;
+}
+
+.prompt.correct .goal-bar {
+  background: var(--ok);
+}
+
+.prompt.slow .goal-bar {
+  background: var(--warn);
+}
+
+.prompt.wrong .goal-bar {
+  background: var(--bad);
+}
+
+@keyframes goal-run {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ---- the map of what you know --------------------------------------------- */
+
+.speed-panel .speed-grid {
+  display: grid;
+  gap: 3px;
+  padding: 16px 24px 0;
+  flex: 1;
+  align-content: center;
+}
+
+.speed-row {
+  display: grid;
+  grid-template-columns: 56px repeat(12, minmax(0, 1fr));
+  gap: 3px;
+  align-items: center;
+}
+
+.speed-head span {
+  font-size: 10.5px;
+  text-align: center;
+  color: var(--ghost);
+}
+
+.speed-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.speed-cell {
+  height: 18px;
+  border: 1px solid var(--line);
+  background: transparent;
+  transition:
+    background-color 220ms var(--ease-out),
+    border-color 220ms var(--ease-out);
+}
+
+.speed-cell.fast {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.speed-cell.slow {
+  background: color-mix(in srgb, var(--warn) 55%, transparent);
+  border-color: var(--warn);
+}
+
+.speed-cell.miss {
+  background: color-mix(in srgb, var(--bad) 55%, transparent);
+  border-color: var(--bad);
+}
+
+.speed-cell.now {
+  outline: 1px solid var(--fg);
+  outline-offset: 1px;
+}
+
+.speed-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 14px 24px 16px;
+  font-size: 11px;
+  color: var(--ghost);
+}
+
+.speed-legend .speed-cell {
+  width: 10px;
+  height: 10px;
+}
+
+.speed-legend .speed-cell:not(:first-child) {
+  margin-left: 10px;
+}
+
+/* Focus mode: a question still being learned is there, but not solid yet. */
+.speed-cell.learning {
+  opacity: 0.45;
+}
+
+.focus-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+
+.focus-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-left: 8px;
+  border-left: 2px solid transparent;
+  transition:
+    color 180ms var(--ease-out),
+    border-color 180ms var(--ease-out);
+}
+
+.focus-list li.now {
+  color: var(--fg);
+  border-left-color: var(--accent);
+}
+
+.focus-steps {
+  display: flex;
+  gap: 4px;
+}
+
+/* ---- 2-5-1 ----------------------------------------------------------------- */
+
+.ii-v-i {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.ii-v-i > span {
+  display: grid;
+  transition: color 180ms var(--ease-out);
+}
+
+.ii-v-i small {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: var(--ghost);
+}
+
+.ii-v-i .done {
+  color: var(--accent);
+}
+
+.ii-v-i .todo {
+  color: var(--miss);
+}
+
+.lap-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lap-dot {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--border-hover);
+  border-radius: 50%;
+}
+
+.lap-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.lap-dots .dim {
+  margin-left: 4px;
+}
+
+.lap-spoiled {
+  color: var(--warn);
+}
+/* ==== end drills ============================================================= */

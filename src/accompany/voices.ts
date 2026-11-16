@@ -9,10 +9,11 @@ import { leaseFx, type FxBus } from '../sound/fx'
 // sounds. As in instrument.ts, the numbers are pure functions up top.
 //
 // The pad is a classic "supersaw" string pad: seven detuned sawtooths spread
-// across the stereo field plus a quiet sine an octave down, through a lowpass
-// that opens slowly after the note starts. The bass is a saw and a sine through
-// a gentle drive and a plucked lowpass. Both send to a chorus and reverb (see
-// sound/fx.ts); the pad generously, the bass barely.
+// across the stereo field, through a lowpass that opens slowly after the note
+// starts and a highpass that leaves everything under the piano's floor to the
+// bass. The bass is a saw and a sine through a gentle drive and a plucked
+// lowpass, one note at a time like a string. Both send to a chorus and reverb
+// (see sound/fx.ts); the pad generously, the bass barely.
 
 export type VoiceOptions = {
   /**
@@ -116,6 +117,15 @@ export function padFilter(touch: number, midi: number): PadFilter {
   return { from: 260 + 120 * t, peak, open: 1.3 - 0.45 * t }
 }
 
+/**
+ * Pad highpass, Hz, 12 dB/octave. Above the bass's top note (B2, 123 Hz) and
+ * most of its second harmonics, so the pad's lowest voice gives up its
+ * fundamental's weight (C3 about -7 dB) and keeps its colour (C4 under -1 dB).
+ * The weight is the bass's job.
+ */
+export const PAD_HIGHPASS_HZ = 180
+export const PAD_HIGHPASS_Q = 0.7
+
 /** Bass brightness: a lowpass that opens a little with touch, never past a warm 900 Hz. */
 export function bassCutoff(gain: number): number {
   return Math.min(900, 380 + 700 * gain)
@@ -131,6 +141,44 @@ export type BassFilter = { peak: number; sustain: number; decay: number }
 export function bassFilter(touch: number): BassFilter {
   const t = clamp01(touch)
   return { peak: 480 + 1700 * t, sustain: 260 + 520 * t, decay: 0.07 + 0.05 * t }
+}
+
+export type BassEnvelope = {
+  /** Level the pluck falls to within ~0.1 s, as a fraction of the peak. */
+  body: number
+  bodyTau: number
+  /** When the slow fall starts, after the note's start, and where it heads. */
+  tailAt: number
+  tail: number
+  tailTau: number
+  /** Time constant of the release, and of the cut when the next note takes over. */
+  release: number
+  choke: number
+}
+
+/**
+ * Bass amplitude: a 5 ms attack, a quick drop to the body of the note, then a
+ * slow fall like a plucked string's, so a note held for a bar thins out
+ * (about -6 dB after 2 s) instead of droning at full weight under the band.
+ * The bass is one string: a new note cuts the one before it in ~50 ms, so two
+ * low notes never ring together.
+ */
+export const BASS_ENV: BassEnvelope = {
+  body: 0.72,
+  bodyTau: 0.12,
+  tailAt: 0.3,
+  tail: 0.4,
+  tailTau: 1.2,
+  release: 0.06,
+  choke: 0.012,
+}
+
+/** Level of a held bass note `t` seconds in, as a fraction of its peak (after the attack). Pure. */
+export function bassLevelAt(t: number, env: BassEnvelope = BASS_ENV): number {
+  const settle = (from: number, to: number, dt: number, tau: number) => to + (from - to) * Math.exp(-dt / tau)
+  const atTail = settle(1, env.body, Math.max(0, env.tailAt - 0.01), env.bodyTau)
+  if (t <= env.tailAt) return settle(1, env.body, Math.max(0, t - 0.01), env.bodyTau)
+  return settle(atTail, env.tail, t - env.tailAt, env.tailTau)
 }
 
 /**
@@ -151,8 +199,6 @@ export function driveCurve(drive = 1.6, size = 1024): Float32Array<ArrayBuffer> 
 // --- Web Audio ---------------------------------------------------------------------
 
 const PAD_SPREAD = detuneSpread(7, 5, 24)
-/** Sub sine an octave down, relative to the unison's combined level. */
-const PAD_SUB = 0.22
 /** Unison saws are loud; this trims the pad to sit where the old one did. */
 const PAD_TRIM = 1.35
 const PAD_SEND = { chorus: 0.5, reverb: 0.42 }
@@ -189,10 +235,15 @@ function send(ctx: BaseAudioContext, from: AudioNode, to: AudioNode, amount: num
   g.connect(to)
 }
 
+type BassNote = { at: number; env: GainNode; stopAt: number }
+/** The last bass note scheduled into each destination: the next one cuts it. */
+const bassNotes = new WeakMap<AudioNode, BassNote>()
+
 /**
  * Bass: a saw and a sine at the same pitch, a touch of drive, a plucked
  * lowpass and a tight envelope. The sine is the weight, the saw is the
- * definition the filter lets through for a moment at each attack.
+ * definition the filter lets through for a moment at each attack. Monophonic
+ * per destination: each note cuts the tail of the one before it.
  */
 export function scheduleBassTone(
   ctx: BaseAudioContext,
@@ -207,7 +258,7 @@ export function scheduleBassTone(
   const touch = opts?.touch ?? touchFromGain(gain, BASS_GAIN_SCALE)
   const flt = bassFilter(touch)
   const end = at + Math.max(0.09, durS)
-  const release = 0.06
+  const { release } = BASS_ENV
   const stopAt = end + release * 7 // seven time constants: -60 dB, so the stop never clicks
 
   const shaper = ctx.createWaveShaper()
@@ -229,8 +280,19 @@ export function scheduleBassTone(
   const level = gain * 0.95
   env.gain.setValueAtTime(0, at)
   env.gain.linearRampToValueAtTime(level, at + 0.005)
-  env.gain.setTargetAtTime(level * 0.72, at + 0.01, 0.12)
+  env.gain.setTargetAtTime(level * BASS_ENV.body, at + 0.01, BASS_ENV.bodyTau)
+  // Only once the note outlasts the pluck: after the release it would pull the level back up.
+  if (end > at + BASS_ENV.tailAt) env.gain.setTargetAtTime(level * BASS_ENV.tail, at + BASS_ENV.tailAt, BASS_ENV.tailTau)
   env.gain.setTargetAtTime(0, end, release)
+
+  // One string: the note before stops where this one starts, instead of
+  // ringing its release (or, overlapping, its sustain) under it.
+  const before = bassNotes.get(dest)
+  if (before && before.at + 0.02 <= at && before.stopAt > at) {
+    before.env.gain.cancelScheduledValues(at)
+    before.env.gain.setTargetAtTime(0, at, BASS_ENV.choke)
+  }
+  bassNotes.set(dest, { at, env, stopAt })
 
   for (const [type, lvl] of [
     ['sine', 0.62],
@@ -254,14 +316,14 @@ export function scheduleBassTone(
   }
 }
 
-type PadChord = { left: AudioNode; right: AudioNode; centre: AudioNode; sub: AudioNode }
+type PadChord = { left: AudioNode; right: AudioNode; centre: AudioNode }
 type PadEntry = { key: string; fx: FxBus | null; chord: PadChord }
 /** The chord currently being scheduled into each destination. */
 const padChords = new WeakMap<AudioNode, PadEntry>()
 
 // Relative levels from the spread, folded into the shared chain: every side saw
-// enters its panner at unit level, so the centre saw and the sub are scaled
-// against the side average. A mono input reaches both channels at full level,
+// enters its panner at unit level, so the centre saw is scaled against the
+// side average. A mono input reaches both channels at full level,
 // while a panned one splits its power, hence the 1/√2.
 const SIDE_LEVEL = (() => {
   const sides = PAD_SPREAD.filter((v) => v.cents !== 0)
@@ -321,8 +383,8 @@ function padChord(
 
   const hp = ctx.createBiquadFilter()
   hp.type = 'highpass'
-  hp.frequency.value = 130
-  hp.Q.value = 0.55
+  hp.frequency.value = PAD_HIGHPASS_HZ
+  hp.Q.value = PAD_HIGHPASS_Q
 
   const amp = ctx.createGain()
   lp.connect(hp)
@@ -353,7 +415,6 @@ function padChord(
     left: panned(-0.6),
     right: panned(0.6),
     centre: scaled(CENTRE_LEVEL / SIDE_LEVEL / Math.SQRT2),
-    sub: scaled(PAD_SUB / SIDE_LEVEL / Math.SQRT2),
   }
 
   if (fx) {
@@ -365,10 +426,11 @@ function padChord(
 }
 
 /**
- * Pad: seven detuned saws spread across the stereo field and a sine an octave
- * down, through a lowpass that opens over about a second, a highpass that
- * leaves the low end to the bass, and a slow envelope that swells through long
- * notes. A slow LFO on the cutoff keeps a held chord breathing.
+ * Pad: seven detuned saws spread across the stereo field, through a lowpass
+ * that opens over about a second, a highpass that leaves the low end to the
+ * bass, and a slow envelope that swells through long notes. A slow LFO on the
+ * cutoff keeps a held chord breathing. No sub: a sine an octave under every
+ * voice put a second, vaguer bass line under the real one.
  *
  * Notes sharing `at`, `durS` and `gain` share one filter/envelope chain (see
  * padChord); the lowpass's mild key tracking follows the first of them.
@@ -401,11 +463,4 @@ export function schedulePadTone(
     osc.start(at + ((i * 0.381966) % 1) * period)
     osc.stop(stopAt)
   })
-
-  const sub = ctx.createOscillator()
-  sub.type = 'sine'
-  sub.frequency.value = f / 2
-  sub.connect(chord.sub)
-  sub.start(at)
-  sub.stop(stopAt)
 }

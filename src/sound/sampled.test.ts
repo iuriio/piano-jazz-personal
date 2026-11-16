@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DRUM_KITS, KEYS_TIMBRES, bankUrl, sampleNames, stagesOf, type Bank, type StoredPreset } from './sampled'
+import { highpassDb } from './fx'
+import { BANK_LOW_CUT_HZ, DRUM_KITS, KEYS_TIMBRES, bankUrl, sampleNames, stagesOf, type Bank, type StoredPreset } from './sampled'
 
 // Vite's glob: the presets as data, the audio files as a list of paths (never loaded).
 const PRESETS = import.meta.glob<StoredPreset>('../../public/samples/*/preset.json', { eager: true, import: 'default' })
@@ -53,6 +54,18 @@ describe('sample sets on disk', () => {
       expect(key, piece).toBeDefined()
       expect(p.groups.some((g) => g.regions.some((r) => r.key === key))).toBe(true)
     }
+  })
+})
+
+describe('low cut per set', () => {
+  it('leaves the keyboards full range: your own playing shares them', () => {
+    for (const k of KEYS_TIMBRES) expect(BANK_LOW_CUT_HZ[k]).toBe(0)
+  })
+
+  it('cuts the kit’s sub boom under the bass, not its kick', () => {
+    const cut = BANK_LOW_CUT_HZ['kit-acoustic']
+    expect(highpassDb(60, cut, Math.SQRT1_2)).toBeGreaterThan(-1.5)
+    expect(highpassDb(40, cut, Math.SQRT1_2)).toBeLessThan(-3)
   })
 })
 

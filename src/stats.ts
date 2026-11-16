@@ -3,9 +3,26 @@ const KEY = 'pjt:stats'
 export type Entry = { attempts: number; correct: number; totalMs: number }
 export type Stats = Record<string, Record<string, Entry>> // voicingId -> pitchClass -> entry
 
+// Shell A and Shell B traded names to match the lesson (A is the third below
+// the seventh). Scores are kept under the voicing id, so the ones saved before
+// the trade move with their shape — once, marked by this key.
+const SHELLS_TRADED = 'pjt:stats:shells-traded'
+
+/** Swaps the two shells' scores. Pure, so the one-time move can be tested. */
+export function tradeShells(stats: Stats): Stats {
+  const { 'shell-a': a, 'shell-b': b, ...rest } = stats
+  return { ...rest, ...(b ? { 'shell-a': b } : {}), ...(a ? { 'shell-b': a } : {}) }
+}
+
 export function loadStats(): Stats {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '{}') as Stats
+    let stats = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Stats
+    if (!localStorage.getItem(SHELLS_TRADED)) {
+      stats = tradeShells(stats)
+      localStorage.setItem(KEY, JSON.stringify(stats))
+      localStorage.setItem(SHELLS_TRADED, '1')
+    }
+    return stats
   } catch {
     return {} // corrupt storage must not take the app down
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chorusCents, makeImpulse, rms, rng } from './fx'
+import { WET_LOW_CUT_HZ, chorusCents, highpassDb, makeImpulse, rms, rng } from './fx'
 
 describe('makeImpulse', () => {
   const sr = 48000
@@ -63,6 +63,19 @@ describe('chorus', () => {
   it('detunes gently: under 10 cents peak', () => {
     expect(chorusCents()).toBeGreaterThan(3)
     expect(chorusCents()).toBeLessThan(10)
+  })
+})
+
+describe('wet low cut', () => {
+  it('keeps the bass register out of the chorus and the reverb', () => {
+    // B2 (123 Hz), the band bass's top note, at least 9 dB down; A4 untouched.
+    expect(highpassDb(123.5, WET_LOW_CUT_HZ, 0.5)).toBeLessThan(-9)
+    expect(highpassDb(440, WET_LOW_CUT_HZ, 0.5)).toBeGreaterThan(-2)
+  })
+
+  it('highpassDb is -3 dB at the cutoff for a Butterworth Q', () => {
+    expect(highpassDb(1000, 1000, Math.SQRT1_2)).toBeCloseTo(-3.01, 2)
+    expect(highpassDb(100, 1000, Math.SQRT1_2)).toBeCloseTo(-40, 0)
   })
 })
 

@@ -109,6 +109,20 @@ export function chorusCents(shape: ChorusShape = CHORUS): number {
   return 1200 * Math.log2(ratio)
 }
 
+/**
+ * Highpass, Hz, at the head of both effects. Low end in a reverb is what
+ * makes a mix muddy; in a chorus it is worse: a 20 ms copy against the dry
+ * signal combs it with notches every 50 Hz, and the sweep makes them wander,
+ * so a low note wobbles in level. Above the bass's whole register (B2, 123 Hz).
+ */
+export const WET_LOW_CUT_HZ = 200
+
+/** Gain in dB of a two-pole highpass (BiquadFilterNode 'highpass') at `f`, for checking where a cut lands. Pure. */
+export function highpassDb(f: number, cutoff: number, q: number): number {
+  const r = f / cutoff
+  return 20 * Math.log10((r * r) / Math.hypot(1 - r * r, r / q))
+}
+
 // --- wiring ---------------------------------------------------------------------
 
 export type FxBus = {
@@ -140,10 +154,10 @@ export function impulseFor(ctx: BaseAudioContext): AudioBuffer {
 /**
  * Builds a chorus and a reverb that return into `out`.
  *
- * Chorus: the send is summed to mono, then two 20 ms delay lines are swept by
- * the same 0.3 Hz sine in opposite phase and panned hard left and right, so one
- * side runs sharp while the other runs flat. Reverb: a highpass at 200 Hz first
- * (low end in a reverb is what makes a mix muddy), then the convolver.
+ * Chorus: the send is summed to mono and highpassed (see WET_LOW_CUT_HZ), then
+ * two 20 ms delay lines are swept by the same 0.3 Hz sine in opposite phase
+ * and panned hard left and right, so one side runs sharp while the other runs
+ * flat. Reverb: the same highpass first, then the convolver.
  */
 export function createFxBus(ctx: BaseAudioContext, out: AudioNode): FxBus {
   const output = ctx.createGain()
@@ -156,6 +170,11 @@ export function createFxBus(ctx: BaseAudioContext, out: AudioNode): FxBus {
   chorus.channelCount = 1
   chorus.channelCountMode = 'explicit'
   chorus.channelInterpretation = 'speakers'
+  const chorusHp = ctx.createBiquadFilter()
+  chorusHp.type = 'highpass'
+  chorusHp.frequency.value = WET_LOW_CUT_HZ
+  chorusHp.Q.value = 0.5
+  chorus.connect(chorusHp)
   const merger = ctx.createChannelMerger(2)
   const lfo = ctx.createOscillator()
   lfo.type = 'sine'
@@ -171,7 +190,7 @@ export function createFxBus(ctx: BaseAudioContext, out: AudioNode): FxBus {
     depth.gain.value = CHORUS.depth * sign
     lfo.connect(depth)
     depth.connect(d.delayTime)
-    chorus.connect(d)
+    chorusHp.connect(d)
     d.connect(merger, 0, side)
     lines.push(d)
   }
@@ -186,7 +205,7 @@ export function createFxBus(ctx: BaseAudioContext, out: AudioNode): FxBus {
   reverb.gain.value = 1
   const hp = ctx.createBiquadFilter()
   hp.type = 'highpass'
-  hp.frequency.value = 200
+  hp.frequency.value = WET_LOW_CUT_HZ
   hp.Q.value = 0.5
   const conv = ctx.createConvolver()
   conv.normalize = false
@@ -216,7 +235,7 @@ export function createFxBus(ctx: BaseAudioContext, out: AudioNode): FxBus {
       } catch {
         // never started or already stopped
       }
-      for (const n of [chorus, merger, lfo, chorusReturn, chorusToVerb, reverb, hp, conv, reverbReturn, output, ...lines]) {
+      for (const n of [chorus, chorusHp, merger, lfo, chorusReturn, chorusToVerb, reverb, hp, conv, reverbReturn, output, ...lines]) {
         n.disconnect()
       }
     },

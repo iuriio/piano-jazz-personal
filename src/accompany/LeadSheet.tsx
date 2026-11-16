@@ -21,13 +21,12 @@ export function LeadSheet() {
   if (!play) return null
   const acc = settings.accompany
   const set = (patch: Partial<AccompanySettings>) => update({ accompany: { ...acc, ...patch } })
-  const tempo = play.free ? 'free time' : `${play.bpm} ${play.tempo === 'lock' ? 'lock' : '~'}`
 
   return (
     <section className="panel notation lead-sheet" aria-label="accompaniment chart">
       <header className="panel-head">
         <h3>
-          accompany · {play.keyLabel} · <span className="ls-bpm">{tempo}</span>
+          accompany · {play.keyLabel} · <span className="ls-bpm">{play.bpm} bpm</span>
         </h3>
         <button className="ls-stop" onClick={() => accompanist.stop()} title="Stop the accompaniment">
           ■ stop
@@ -40,7 +39,7 @@ export function LeadSheet() {
         title="Cycle exact / jazz / simple chord names"
       >
         {play.rows.map((row, r) => (
-          <Row key={row.index} row={row} current={r === 0 ? play.bar : -1} beat={play.beat} naming={settings.naming} waiting={play.waiting} />
+          <Row key={row.index} row={row} current={r === 0 ? play.bar : -1} beat={play.beat} naming={settings.naming} />
         ))}
       </div>
 
@@ -93,14 +92,6 @@ export function LeadSheet() {
           />
           <span className="grp-label">rich</span>
         </label>
-        <span className="ls-ctl ls-seg" role="group" aria-label="tempo">
-          <span className="grp-label">tempo</span>
-          {(['follow', 'lock'] as const).map((t) => (
-            <button key={t} className={acc.tempo === t ? 'on' : ''} aria-pressed={acc.tempo === t} onClick={() => set({ tempo: t })}>
-              {t}
-            </button>
-          ))}
-        </span>
         <label className="ls-ctl">
           <span className="grp-label">vol</span>
           <Slider
@@ -122,13 +113,11 @@ function Row({
   current,
   beat,
   naming,
-  waiting,
 }: {
   row: SheetRow
   current: number
   beat: number
   naming: Parameters<typeof chordText>[1]
-  waiting: boolean
 }) {
   return (
     <div className={`ls-row ${row.planned ? 'planned' : ''}`}>
@@ -138,7 +127,7 @@ function Row({
       {row.bars.map((bar, i) => {
         const now = i === current
         return (
-          <div key={i} className={`ls-bar ${now ? 'now' : ''} ${now && waiting ? 'waiting' : ''}`} aria-current={now ? 'true' : undefined}>
+          <div key={i} className={`ls-bar ${now ? 'now' : ''}`} aria-current={now ? 'true' : undefined}>
             {i === row.toBar && row.to && <span className="ls-to">→ {row.to}</span>}
             <div className="ls-chords">
               {bar.chords.map((c, j) =>

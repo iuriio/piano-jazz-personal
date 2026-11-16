@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { velocityToGain } from '../instrument'
+import { midiToFreq, velocityToGain } from '../instrument'
+import { highpassDb } from '../sound/fx'
+import { BASS_CEIL, PIANO_FLOOR } from './voicing'
 import {
+  BASS_ENV,
   BASS_GAIN_SCALE,
   PAD_GAIN_SCALE,
+  PAD_HIGHPASS_HZ,
+  PAD_HIGHPASS_Q,
   bassFilter,
+  bassLevelAt,
   detuneSpread,
   driveCurve,
   padEnvelope,
@@ -103,6 +109,49 @@ describe('bassFilter', () => {
     expect(bassFilter(1).peak).toBeGreaterThan(bassFilter(0).peak)
     expect(bassFilter(1).sustain).toBeLessThan(900)
     expect(bassFilter(0).sustain).toBeLessThan(bassFilter(0).peak)
+  })
+})
+
+describe('pad highpass', () => {
+  const db = (midi: number) => highpassDb(midiToFreq(midi), PAD_HIGHPASS_HZ, PAD_HIGHPASS_Q)
+
+  it('sits above the whole bass register', () => {
+    expect(PAD_HIGHPASS_HZ).toBeGreaterThan(midiToFreq(BASS_CEIL))
+    expect(db(BASS_CEIL)).toBeLessThan(-7)
+    // E2, the middle of the bass's range: what the old sub sine filled.
+    expect(db(40)).toBeLessThan(-12)
+  })
+
+  it('thins the pad’s lowest voice and leaves the middle alone', () => {
+    expect(db(PIANO_FLOOR)).toBeLessThan(-5)
+    expect(db(PIANO_FLOOR)).toBeGreaterThan(-9)
+    expect(db(60)).toBeGreaterThan(-1)
+  })
+})
+
+describe('bass envelope', () => {
+  const dB = (x: number) => 20 * Math.log10(x)
+
+  it('plucks: drops to its body within ~0.3 s', () => {
+    expect(bassLevelAt(0.01)).toBeCloseTo(1, 6)
+    expect(bassLevelAt(0.3)).toBeLessThan(0.76)
+    expect(bassLevelAt(0.3)).toBeGreaterThan(BASS_ENV.body)
+  })
+
+  it('thins through a held note instead of droning', () => {
+    // A two-feel half note at 120 bpm keeps most of its weight...
+    expect(bassLevelAt(1)).toBeGreaterThan(0.55)
+    // ...a whole bar at 60 bpm is well down by its end.
+    expect(dB(bassLevelAt(2))).toBeLessThan(-5.5)
+    expect(bassLevelAt(4)).toBeGreaterThanOrEqual(BASS_ENV.tail)
+    expect(bassLevelAt(4)).toBeLessThan(BASS_ENV.tail + 0.03)
+    for (let t = 0.02; t < 6; t += 0.05) expect(bassLevelAt(t + 0.05)).toBeLessThanOrEqual(bassLevelAt(t))
+  })
+
+  it('lets go fast, and faster still when the next note comes', () => {
+    // Seven time constants is where the voice stops: under 0.5 s.
+    expect(BASS_ENV.release * 7).toBeLessThan(0.5)
+    expect(BASS_ENV.choke * 4).toBeLessThan(0.06)
   })
 })
 

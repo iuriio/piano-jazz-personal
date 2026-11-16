@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { keyById } from './analysis'
+import { DrillPicker } from './drills/DrillPicker'
+import { glyph } from './drills/spell'
+import { sayChord } from './drills/say'
+import { useCue, useSpokenQuestion } from './drills/useDrillSound'
 import { marksFromComparison } from './keyboard'
 import { CHROMATIC, FOURTHS, type Order } from './keys'
+import { useAskedRoots } from './stage/asked'
 import { usePlay, useSettings } from './stage/settings'
 import { Workspace } from './stage/Workspace'
 import { Presence } from './ui/Presence'
@@ -9,10 +14,18 @@ import { Swap } from './ui/Swap'
 import { Select } from './ui/Select'
 import { Switch } from './ui/Switch'
 import { clearStats, loadStats, recordAttempt, summaryFor, type Stats } from './stats'
-import { chordLabel, compareToTarget, handNotes, pitchClassName, type Spelling } from './theory'
+import {
+  chordLabel,
+  compareToTarget,
+  handNotes,
+  pitchClassName,
+  placeVoicing,
+  type Spelling,
+} from './theory'
 import { QUALITY_LABEL, VOICINGS, type Quality, voicingToMidi } from './voicings'
 
-// Root always in C3..B3 — that way the target drawn on the staff is unambiguous.
+// The target is drawn with its root in C3..B3, so the staff is unambiguous. It
+// counts in any octave: see `placeVoicing`.
 const ROOT_OCTAVE_BASE = 48
 
 type Target = { rootPc: number; quality: Quality }
@@ -31,8 +44,8 @@ export function Drill() {
   const { settings } = useSettings()
   const { settled } = usePlay()
   const key = keyById(settings.keyId)
-  // keytrainer's chord labels take a flat/sharp preference; the key decides it.
-  const spelling: Spelling = key.accidentals > 0 ? 'sharp' : 'flat'
+  // The key decides how roots are written; with no signature, as on a lead sheet.
+  const spelling: Spelling = key.accidentals > 0 ? 'sharp' : key.accidentals < 0 ? 'flat' : 'lead'
 
   const [voicingId, setVoicingId] = useState(VOICINGS[0].id)
   const [qualities, setQualities] = useState<Quality[]>(['m7'])
@@ -42,6 +55,8 @@ export function Drill() {
   const [round, setRound] = useState(0)
   const [result, setResult] = useState<'pending' | 'correct' | 'wrong'>('pending')
   const [revealed, setRevealed] = useState(false)
+  // Chords judged so far: a second wrong chord is a new event with the same result.
+  const [tries, setTries] = useState(0)
   const [stats, setStats] = useState<Stats>(() => loadStats())
 
   const voicing = VOICINGS.find((v) => v.id === voicingId) ?? VOICINGS[0]
@@ -51,9 +66,18 @@ export function Drill() {
   const startedAtRef = useRef(performance.now())
   const lockedRef = useRef(false)
   const indexRef = useRef(0)
+  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
+    },
+    [],
+  )
 
   const nextTarget = useCallback(
     (i: number) => {
+      // A skip while the advance is pending must not move on twice.
+      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current)
       const sequence = order === 'chromatic' ? CHROMATIC : FOURTHS
       const rootPc =
         order === 'random' ? Math.floor(Math.random() * 12) : sequence[i % sequence.length]
@@ -84,23 +108,34 @@ export function Drill() {
     [voicing, target],
   )
 
+  // The target in the octave it is being played in.
+  const placed = useCallback(
+    (played: number[]) =>
+      placeVoicing(played, voicing, target.quality, ROOT_OCTAVE_BASE + target.rootPc),
+    [voicing, target],
+  )
+
   // Evaluates on every new settled chord. `settled` is a fresh array on each
   // reading, so playing the same chord again fires again — which is what we want.
   useEffect(() => {
     if (settled.length === 0 || lockedRef.current) return
-    const c = compareToTarget(settled, targetMidi)
-    if (c.exact) {
+    if (compareToTarget(settled, placed(settled)).exact) {
       lockedRef.current = true
       setResult('correct')
+      setTries((n) => n + 1)
       setStats(
         recordAttempt(voicing.id, target.rootPc, true, performance.now() - startedAtRef.current),
       )
-      const t = setTimeout(advance, 700)
-      return () => clearTimeout(t)
+      // Kept in a ref, not in this effect's cleanup: letting go of the chord one
+      // finger at a time settles a smaller chord, and a cleanup would cancel the
+      // advance with the target still locked — the drill froze on "right".
+      advanceTimerRef.current = setTimeout(advance, 700)
+      return
     }
     // Only counts a miss once there are enough notes; a chord being built is not penalized.
     if (settled.length >= targetMidi.length) {
       setResult('wrong')
+      setTries((n) => n + 1)
       setStats(
         recordAttempt(voicing.id, target.rootPc, false, performance.now() - startedAtRef.current),
       )
@@ -111,8 +146,13 @@ export function Drill() {
   // starts from the outline alone.
   const marks = useMemo(() => {
     const played = result === 'pending' && lockedRef.current ? [] : settled
-    return marksFromComparison(compareToTarget(played, targetMidi))
-  }, [settled, targetMidi, result])
+    return marksFromComparison(compareToTarget(played, placed(played)))
+  }, [settled, placed, result])
+
+  // The card reads the chord back with the root name it is asked by.
+  useAskedRoots([pitchClassName(target.rootPc, spelling)])
+  useSpokenQuestion(sayChord(chordLabel(target.rootPc, target.quality, spelling)), round)
+  useCue(result === 'correct' ? 'right' : result === 'wrong' ? 'wrong' : null, tries)
 
   const hands = handNotes(voicing, target.quality, ROOT_OCTAVE_BASE + target.rootPc, spelling)
   const summary = summaryFor(stats, voicing.id)
@@ -121,6 +161,7 @@ export function Drill() {
     <Workspace
       sidebar={
         <>
+          <DrillPicker />
           <section className="side-group">
             <h3>voicing</h3>
             <label className="side-row">
@@ -179,7 +220,7 @@ export function Drill() {
                   if (!e) return null
                   return (
                     <li key={pc}>
-                      {pitchClassName(pc, spelling)}: {e.correct}/{e.attempts}
+                      {glyph(pitchClassName(pc, spelling))}: {e.correct}/{e.attempts}
                     </li>
                   )
                 })}
@@ -201,7 +242,7 @@ export function Drill() {
         <div className={`prompt ${result}`}>
           <span className="prompt-label">play</span>
           <Swap k={String(round)}>
-            <div className="chord-symbol">{chordLabel(target.rootPc, target.quality, spelling)}</div>
+            <div className="chord-symbol">{glyph(chordLabel(target.rootPc, target.quality, spelling))}</div>
           </Swap>
           <Swap k={voicing.id}>
             <div className="voicing-name">{voicing.label}</div>
@@ -209,7 +250,7 @@ export function Drill() {
           <Presence ms={200}>
             {revealed && (
               <p className="hand-notes">
-                LH {hands.lh.join(' ')} · RH {hands.rh.join(' ')}
+                LH {hands.lh.map(glyph).join(' ')} · RH {hands.rh.map(glyph).join(' ')}
               </p>
             )}
           </Presence>
