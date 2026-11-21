@@ -26,6 +26,15 @@ describe('the band', () => {
     expect(reduce(reduce(INITIAL, { type: 'start', choice: C }), { type: 'tick', context: 'voicings' })).toEqual(INITIAL)
   })
 
+  it('plays in the improvisation drills when started there, and stops on leaving them', () => {
+    const s = reduce(reduce(INITIAL, { type: 'start', choice: C, context: 'improv' }), { type: 'started' })
+    expect(reduce(s, { type: 'tick', context: 'improv' })).toBe(s)
+    expect(reduce(s, { type: 'tick', context: 'voicings' })).toEqual(INITIAL)
+    expect(reduce(s, { type: 'tick', context: 'free' })).toEqual(INITIAL)
+    // And the free-play band does not follow you into them.
+    expect(reduce(playing(), { type: 'tick', context: 'improv' })).toEqual(INITIAL)
+  })
+
   it('ignores a second start while it plays', () => {
     const s = playing()
     expect(reduce(s, { type: 'start', choice: { ...C, key: { collectionPc: 7, center: 7, mode: 'major' } } })).toBe(s)

@@ -20,15 +20,27 @@ export const MODE_LABEL: Record<Mode, string> = {
 }
 
 /** What the drills mode runs. */
-export type DrillId = 'voicing' | 'intervals' | 'sevenths' | 'ii-v-i'
+export type DrillId = 'voicing' | 'intervals' | 'sevenths' | 'ii-v-i' | ImprovDrillId
 
-export const DRILLS: DrillId[] = ['intervals', 'sevenths', 'ii-v-i', 'voicing']
+/** The improvisation drills: a solo over the band, on a progression you pick. */
+export type ImprovDrillId = 'solo-flow' | 'solo-guide' | 'solo-motif'
+
+export const IMPROV_DRILLS: ImprovDrillId[] = ['solo-flow', 'solo-guide', 'solo-motif']
+
+export const DRILLS: DrillId[] = ['intervals', 'sevenths', 'ii-v-i', 'voicing', ...IMPROV_DRILLS]
 
 export const DRILL_LABEL: Record<DrillId, string> = {
   intervals: 'intervals in 2s',
   sevenths: '7th chords in 2s',
   'ii-v-i': '2-5-1 in 12 keys',
   voicing: 'voicings',
+  'solo-flow': 'never stop',
+  'solo-guide': 'land on a guide tone',
+  'solo-motif': 'repeat and change',
+}
+
+export function isImprov(drill: DrillId): drill is ImprovDrillId {
+  return (IMPROV_DRILLS as DrillId[]).includes(drill)
 }
 
 export type StageSettings = {

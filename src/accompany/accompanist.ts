@@ -8,9 +8,11 @@ import { ACTIVITY_WINDOW_MS, INITIAL, reduce, type Choice, type Context, type Ma
 import { autoStyle, feel, patternFor, swingFor, swungAt, walkingLine, type BarPattern, type Hit, type Style } from './patterns'
 import { median, rng } from './played'
 import {
+  chartComplexity,
   lockThrough,
   planPhrase,
   renderPhrase,
+  type Chart,
   type Complexity,
   type Phrase,
   type PlanChord,
@@ -58,6 +60,8 @@ export type SheetBar = { chords: { symbol: string; hold: boolean }[]; locked: bo
 export type SheetRow = {
   index: number
   section: Section
+  /** What the row is called on the chart: the section of a tune, the line of a written chart. */
+  label: string
   bars: SheetBar[]
   planned: boolean
   /** Set where a new key starts: "→ E♭ major". */
@@ -77,7 +81,26 @@ export type PlayView = {
   beat: number
   now: string | null
   next: string | null
+  /** The written chart being played, if it is one. */
+  chart: string | null
 }
+
+/**
+ * One bar as the band played it, on the clock your notes are stamped with: for
+ * a drill that has to know which chord a note landed on.
+ */
+export type BandBar = {
+  /** performance.now() of the bar's first beat. */
+  start: number
+  beatMs: number
+  chords: PlanChord[]
+  /** The first chord of the bar after it. */
+  next: PlanChord | null
+}
+
+const NO_BARS: readonly BandBar[] = []
+/** Bars of history kept: over a minute at any tempo, more than the ear remembers. */
+const BARS_KEPT = 64
 
 export type AccompanyView = {
   phase: Phase
@@ -87,6 +110,10 @@ export type AccompanyView = {
 }
 
 type Session = {
+  /** A written chart, played as written in `tonic`; null for a tune of the band's own. */
+  chart: Chart | null
+  tonic: PlanKey
+  played: BandBar[]
   key: PlanKey
   bpm: number
   beatMs: number
@@ -226,7 +253,23 @@ class Accompanist {
   start(): void {
     // Inside the click: the browser lets audio start here.
     void resumeAudio()
-    this.dispatch({ type: 'start', choice: { key: this.startKey(), pulse: isSteady(this.lastHeard.pulse) ? this.lastHeard.pulse : null } })
+    this.dispatch({
+      type: 'start',
+      context: this.context,
+      choice: { key: this.startKey(), pulse: isSteady(this.lastHeard.pulse) ? this.lastHeard.pulse : null },
+    })
+  }
+
+  /** Starts the band on a written chart, in the major key of `tonicPc`, at your tempo. */
+  startChart(chart: Chart, tonicPc: number): void {
+    void resumeAudio()
+    const key: PlanKey = { collectionPc: tonicPc, center: tonicPc, mode: 'major' }
+    this.dispatch({ type: 'start', context: this.context, choice: { key, pulse: null, chart } })
+  }
+
+  /** The bars played so far, oldest first; the last one may start a moment from now. */
+  bars(): readonly BandBar[] {
+    return this.session?.played ?? NO_BARS
   }
 
   stop(): void {
@@ -292,9 +335,19 @@ class Accompanist {
     return this.bus
   }
 
-  private planOpts(s: Pick<Session, 'seed' | 'densityAuto'>) {
+  private planOpts(s: Pick<Session, 'seed' | 'densityAuto' | 'chart'>) {
     const d = this.settings.density
-    return { seed: s.seed, density: d === 'auto' ? s.densityAuto : d === '2' ? (2 as const) : (1 as const), beatsPerBar: 4 }
+    return {
+      seed: s.seed,
+      density: d === 'auto' ? s.densityAuto : d === '2' ? (2 as const) : (1 as const),
+      beatsPerBar: 4,
+      chart: s.chart ?? undefined,
+    }
+  }
+
+  /** How rich the chords are: your setting, kept to what a written chart allows. */
+  private complexityOf(s: Pick<Session, 'chart'>): Complexity {
+    return s.chart ? chartComplexity(this.settings.complexity) : this.settings.complexity
   }
 
   private resolveStyle(s: Pick<Session, 'heardStyle'>): Style {
@@ -313,7 +366,9 @@ class Accompanist {
     const activity = activityOf(played, now, ACTIVITY_WINDOW_MS)
     const rate = activity.activeMs > 0 ? activity.attacks / (activity.activeMs / 1000) : 0
     const densityAuto: 1 | 2 = rate < 1.5 || bpm > 160 ? 2 : 1
-    const heardStyle = autoStyle(bpm, !!pulse?.swung)
+    const chart = choice.chart ?? null
+    // A chart is there to solo over: it swings unless you pick another style.
+    const heardStyle = autoStyle(bpm, chart ? true : !!pulse?.swung)
     const seed = Math.floor(Math.random() * 2 ** 31)
 
     const out = ctx.createGain()
@@ -339,8 +394,11 @@ class Accompanist {
     }
 
     const transport = new Transport()
-    const base = { seed, densityAuto }
+    const base = { seed, densityAuto, chart }
     const s: Session = {
+      chart,
+      tonic: choice.key,
+      played: [],
       key: choice.key,
       bpm,
       beatMs,
@@ -415,6 +473,8 @@ class Accompanist {
 
   /** The key the next phrase is planned in: yours, if the band follows you, else its own. */
   private planKey(s: Session): PlanKey {
+    // A chart stays where it was written; its own key changes are in it.
+    if (s.chart) return s.tonic
     const t = s.track.current
     if (!this.settings.followKey || !t) return s.key
     return { collectionPc: t.collectionPc, center: t.center, mode: t.mode }
@@ -489,7 +549,11 @@ class Accompanist {
 
   private onBeat(s: Session, b: Beat): void {
     if (this.session !== s) return
-    if (b.beatInBar === 0) this.enterBar(s)
+    if (b.beatInBar === 0) {
+      this.enterBar(s)
+      s.played.push({ start: b.perfTime, beatMs: s.beatMs, chords: s.barChords, next: s.ahead?.chord ?? null })
+      if (s.played.length > BARS_KEPT) s.played.shift()
+    }
     this.scheduleBeat(s, b)
 
     // The view moves when the beat sounds, not when it is scheduled ~100 ms early.
@@ -517,7 +581,7 @@ class Accompanist {
       s.next = planPhrase(this.planKey(s), s.current.index + 1, this.planOpts(s))
       s.barInPhrase = 0
     }
-    const c = this.settings.complexity
+    const c = this.complexityOf(s)
     const played = heard(now)
     const rendered = renderPhrase(s.current, c, s.seed, s.next)
     s.current = lockThrough(s.current, s.barInPhrase, rendered)
@@ -555,7 +619,7 @@ class Accompanist {
    */
   private lookAhead(s: Session): void {
     if (s.barInPhrase < 0 || !s.barChords.length) return
-    const c = this.settings.complexity
+    const c = this.complexityOf(s)
     const following =
       s.barInPhrase < 3
         ? renderPhrase(s.current, c, s.seed, s.next)[s.barInPhrase + 1][0]
@@ -677,12 +741,13 @@ class Accompanist {
     const s = this.session
     let play: PlayView | null = null
     if (s) {
-      const c = this.settings.complexity as Complexity
+      const c = this.complexityOf(s)
       const cur = renderPhrase(s.current, c, s.seed, s.next)
       const nxt = renderPhrase(s.next, c, s.seed)
       const row = (ph: Phrase, r: PlanChord[][], planned: boolean): SheetRow => ({
         index: ph.index,
         section: ph.section,
+        label: s.chart ? String((ph.index % s.chart.phrases.length) + 1) : ph.section,
         planned,
         to: planned && !sameKey(ph.key, s.current.key) ? keyLabel(ph.key) : null,
         toBar: 0,
@@ -693,8 +758,10 @@ class Accompanist {
       })
       const bar = s.barInPhrase
       const beat = s.beatInBar
-      const nowChord = bar >= 0 ? cur[bar][this.chordAt(s, Math.max(0, beat))] ?? cur[bar][0] : cur[0][0]
-      const nextChord = bar < 3 ? cur[bar + 1][0] : nxt[0][0]
+      const at = bar >= 0 ? this.chordAt(s, Math.max(0, beat)) : 0
+      const nowChord = bar >= 0 ? cur[bar][at] ?? cur[bar][0] : cur[0][0]
+      // The chord after this one: the bar's second, if it has one still to come.
+      const nextChord = (bar >= 0 ? cur[bar][at + 1] : undefined) ?? (bar < 3 ? cur[bar + 1][0] : nxt[0][0])
       play = {
         key: s.key,
         keyLabel: keyLabel(s.key),
@@ -705,6 +772,7 @@ class Accompanist {
         beat,
         now: nowChord?.symbol ?? null,
         next: nextChord?.symbol ?? null,
+        chart: s.chart?.id ?? null,
       }
     }
     return { phase: st.phase, heard: heardView, play }

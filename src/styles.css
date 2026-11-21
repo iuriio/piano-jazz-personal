@@ -3112,4 +3112,148 @@ a {
 .lap-spoiled {
   color: var(--warn);
 }
+/* ---- solo: the improvisation drills ------------------------------------------ */
+
+/* Room under the strip for the band's controls, which sit just above the card. */
+.prompt.solo-strip {
+  margin-bottom: 16px;
+}
+
+.solo-big {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.solo-big small {
+  margin-left: 12px;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--dim);
+}
+
+/* An instruction, not a number: a size down, so a long one stays on one line. */
+.solo-big.solo-ask {
+  font-size: 28px;
+}
+
+.solo-start {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  color: var(--fg);
+}
+
+.solo-start:hover {
+  color: var(--accent);
+}
+
+/* The chord sounding and the one coming, each over the notes to land on. */
+.solo-chords {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.solo-chords > span {
+  display: grid;
+  transition: color 180ms var(--ease-out);
+}
+
+.solo-chords small {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: var(--ghost);
+}
+
+.solo-chords em {
+  min-height: 1.5em;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--accent-bright);
+  white-space: pre;
+}
+
+.solo-chords .todo,
+.solo-chords .todo em {
+  color: var(--dim);
+}
+
+/* The verdict on the last phrase: what it was, and under it what to make of it. */
+.verdict.solo-verdict {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  text-align: right;
+}
+
+.solo-verdict small {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--dim);
+}
+
+.solo-log {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+
+.solo-log li {
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.solo-log li.ok {
+  border-left-color: var(--ok);
+  color: var(--fg-soft);
+}
+
+.solo-log li.bad {
+  border-left-color: var(--bad);
+}
+
+/* The notes to land on, under each chord of the chart: two rows, one per line. */
+.ls-chord.solo-chord {
+  display: inline-grid;
+  gap: 4px;
+}
+
+.solo-tones {
+  display: grid;
+  gap: 1px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--accent-bright);
+}
+
+.solo-tones i {
+  min-height: 1.25em;
+  font-style: normal;
+}
+
+.ls-row.planned .solo-tones {
+  color: var(--dim);
+}
 /* ==== end drills ============================================================= */

@@ -15,6 +15,8 @@ type Props = {
   sidebar: ReactNode
   /** Above the card row: the drill target, the exercise header… */
   banner?: ReactNode
+  /** A mode's own band controls, where free play has its accompaniment's. */
+  badge?: ReactNode
   /** Replaces the chord card, when a mode has something better to show there. */
   card?: ReactNode
   /** Replaces the notation panel, when a mode has something better to show there. */
@@ -33,7 +35,7 @@ type Props = {
  * card, notation, live input — is the same object in all of them, so moving from
  * free play to a drill never moves your eyes.
  */
-export function Workspace({ sidebar, banner, card, aside, notation, marks, roll, quiet, below }: Props) {
+export function Workspace({ sidebar, banner, badge, card, aside, notation, marks, roll, quiet, below }: Props) {
   const { settings, update, held } = useStage()
   const key = useStageKey()
   // Labels spell what is held as the chord it makes: E♭ in a Cm7, even in C.
@@ -74,7 +76,7 @@ export function Workspace({ sidebar, banner, card, aside, notation, marks, roll,
       <main className="stage">
         {banner}
         <div className="card-row">
-          {settings.mode === 'free' && <AccompanyBadge />}
+          {badge ?? (settings.mode === 'free' && <AccompanyBadge />)}
           {card ?? <ChordCard />}
           {aside ?? (sheet ? <LeadSheet /> : (
             <section className="panel notation">

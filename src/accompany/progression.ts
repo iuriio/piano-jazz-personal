@@ -65,6 +65,59 @@ export type PlanOpts = {
   /** Bars per chord: 1, or 2 when you play sparsely or fast. */
   density: 1 | 2
   beatsPerBar: number
+  /** A written progression to play instead of a drawn tune. */
+  chart?: Chart
+}
+
+// --- charts -------------------------------------------------------------------
+//
+// A written progression, for practising over changes you chose: the band plays
+// it as written, chorus after chorus. Nothing is drawn and the density setting
+// does not apply.
+
+/**
+ * Four bars of a chart, in numerals from a major tonic. A bar holds one chord
+ * or two ("ii V"). `shift` moves these four bars' key by semitones; `minor`
+ * puts them in the parallel minor.
+ */
+export type ChartPhrase = { bars: [string, string, string, string]; shift?: number; minor?: boolean }
+
+export type Chart = { id: string; phrases: ChartPhrase[] }
+
+/** The key four bars of a chart are in, from the tonic the chart is played in. */
+export function chartKey(tonicPc: number, ph: ChartPhrase): PlanKey {
+  const center = pcOf(tonicPc + (ph.shift ?? 0))
+  return ph.minor
+    ? { center, mode: 'minor', collectionPc: pcOf(center + 3) }
+    : { center, mode: 'major', collectionPc: center }
+}
+
+/**
+ * A chart is played in sevenths or with extensions: triads would take the
+ * guide tones out of the chords, and substitutions would not be the changes
+ * you asked for.
+ */
+export function chartComplexity(c: Complexity): Complexity {
+  return c < 2 ? 2 : c > 3 ? 3 : c
+}
+
+function chartPhrase(chart: Chart, tonicPc: number, index: number, beats: number): Phrase {
+  const n = chart.phrases.length
+  const ph = chart.phrases[((index % n) + n) % n]
+  const bars: PlanBar[] = ph.bars.map((bar) => {
+    const tokens = bar.split(' ')
+    return { slots: tokens.map((token) => ({ token, beats: beats / tokens.length })), locked: null }
+  })
+  return { index, section: sectionOf(index), key: chartKey(tonicPc, ph), bars }
+}
+
+/** Every phrase of a chart as it will sound in a key, in order: for showing it before the band starts. */
+export function renderChart(chart: Chart, tonicPc: number, complexity: Complexity): PlanChord[][][] {
+  const opts: PlanOpts = { seed: 0, density: 1, beatsPerBar: 4, chart }
+  const base: PlanKey = { center: tonicPc, mode: 'major', collectionPc: tonicPc }
+  const phrases = chart.phrases.map((_, i) => planPhrase(base, i, opts))
+  const c = chartComplexity(complexity)
+  return phrases.map((p, i) => renderPhrase(p, c, 0, phrases[(i + 1) % phrases.length]))
 }
 
 // --- templates ----------------------------------------------------------------
@@ -202,6 +255,7 @@ const sectionIndex = (index: number) => ((index % 4) + 4) % 4
  * same phrase, which is what lets the chart show it before it plays.
  */
 export function planPhrase(key: PlanKey, index: number, opts: PlanOpts): Phrase {
+  if (opts.chart) return chartPhrase(opts.chart, key.center, index, opts.beatsPerBar)
   const t = TEMPLATES[key.mode]
   // Templates are drawn once per session: every chorus of the tune is the same tune.
   const r = rng(subSeed(opts.seed, 0))
@@ -251,11 +305,14 @@ export function renderPhrase(p: Phrase, complexity: Complexity, seed: number, af
   return p.bars.map((bar, i) => {
     if (bar.locked) return bar.locked
     const next = following(i)
-    const nextMinor = next ? parseNumeral(next).family === 'min' || parseNumeral(next).family === 'hdim' : false
+    const minor = (token: string | null) =>
+      token ? parseNumeral(token).family === 'min' || parseNumeral(token).family === 'hdim' : false
     const out: PlanChord[] = []
-    for (const s of plain[i]) {
-      out.push(chordOf(symbolFor(s.token, p.key, complexity, nextMinor && s.token !== 'V'), s.token, s.beats, s.hold))
-    }
+    plain[i].forEach((s, j) => {
+      // Where this chord goes: the next one in its bar (a written chart may have two), else the next bar.
+      const goesToMinor = minor(plain[i][j + 1]?.token ?? next)
+      out.push(chordOf(symbolFor(s.token, p.key, complexity, goesToMinor && s.token !== 'V'), s.token, s.beats, s.hold))
+    })
     if (complexity < 4 || !next || out.length !== 1 || out[0].hold) return out
     return substitute(out[0], next, p, i, complexity, seed)
   })

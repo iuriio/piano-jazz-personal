@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { keyById } from '../analysis'
-import { useSettings } from '../stage/settings'
+import { isImprov, useSettings } from '../stage/settings'
 import { accompanist, useAccompany } from './accompanist'
 import { Select } from '../ui/Select'
 import { BPM_MAX, BPM_MIN, FIXED_KEYS, clampBpm, type AccompanySettings } from './settings'
@@ -18,9 +18,12 @@ export function AccompanyHost() {
     return () => accompanist.disconnect()
   }, [])
 
+  // The improvisation drills have a band of their own; the other drills have none.
+  const context = settings.mode === 'voicings' && isImprov(settings.drill) ? 'improv' : settings.mode
+
   useEffect(() => {
-    accompanist.configure(settings.mode, settings.accompany, pagePc)
-  }, [settings.mode, settings.accompany, pagePc])
+    accompanist.configure(context, settings.accompany, pagePc)
+  }, [context, settings.accompany, pagePc])
 
   return null
 }
@@ -81,7 +84,7 @@ const TAP_RESET_MS = 2000
  * The tempo: − and + (hold to run), or tap it in. Whatever you set is what
  * the band plays; it never changes by itself.
  */
-function BpmControl({ bpm, onChange }: { bpm: number; onChange: (bpm: number) => void }) {
+export function BpmControl({ bpm, onChange }: { bpm: number; onChange: (bpm: number) => void }) {
   const latest = useRef(bpm)
   latest.current = bpm
   const hold = useRef<ReturnType<typeof setTimeout> | null>(null)

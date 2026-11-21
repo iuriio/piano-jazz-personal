@@ -71,6 +71,7 @@ Status: `done` · `wip` · `next` · `later` · `out` (deliberately left out).
 | Intervals in 2s | Any interval from any note, answered at the keyboard and timed to the first note; a map of all 132 questions | done |
 | 7th chords in 2s | maj7 / m7 / 7 (and six more types) from all 12 roots in random order, root position, timed to the last note | done |
 | 2-5-1 in 12 keys | Major and minor; close position, shells, rootless; the lesson's key walk; three clean laps from memory | done |
+| Solo over the band | Three improvisation drills over a written chart the band plays (2-5-1s, turnaround, blues): never stop, land every phrase on a guide tone, repeat a phrase and change one thing | done |
 | Shred | Hanon and friends, BPM ladder driven by clean reps, per-note diagnosis | done |
 
 ## Performance notes

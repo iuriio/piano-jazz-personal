@@ -15,7 +15,7 @@ npm install && npm run dev
 Open it in **Chrome or Edge** (the Web MIDI API does not exist in Firefox/Safari) and grant MIDI access.
 
 - **Visualizer** — play anything and it shows the keyboard, the staff, the chord name, the intervals, and recognizes which voicing it is.
-- **Drills** — four of them, picked at the top of the sidebar: intervals and seventh chords against a two-second clock, the 2-5-1 through all 12 keys, and the voicing drill (pick a voicing and a quality, and it asks for the chord in all 12 keys, validating note by note, in whatever octave you play it; a lone left-hand root may sit lower still).
+- **Drills** — picked at the top of the sidebar: intervals and seventh chords against a two-second clock, the 2-5-1 through all 12 keys, the voicing drill (pick a voicing and a quality, and it asks for the chord in all 12 keys, validating note by note, in whatever octave you play it; a lone left-hand root may sit lower still), and three improvisation drills over a band.
 - **Shred** — speed exercises against a metronome, from beginner to advanced, with the BPM climbing gradually.
 
 The sustain pedal counts: a note released with the pedal down stays part of the chord, just like on a piano. To change chord, lift the pedal.
@@ -41,6 +41,18 @@ The two speed drills build up **five questions at a time**, like a flashcard dec
 Only the first answer to a question is recorded, and an answer that takes more than ten seconds is treated as you having stepped away, not as slow. `practice → everything, random` switches the build-up off and runs through everything switched on in random order, with a miss or a slow answer coming back a few questions later.
 
 In the 2-5-1, a **clean lap** is all 12 keys with the notes hidden and no wrong chord; three in a row is the bar for moving on. The shapes are a table in [`src/drills/twoFiveOne.ts`](src/drills/twoFiveOne.ts), written as semitones from the two chord's root so the voice leading is visible in the numbers. To fix or add a shape, edit only that table.
+
+### Solo over the band
+
+Three improvisation drills, each for one thing a solo needs: thinking fast enough, knowing where the harmony is, and tying one phrase to the next. They run over the accompaniment's band, playing changes you pick in the key and at the tempo you set. Start the band and play; it judges the line, not the left hand (**solo is** sets the lowest note that counts, so you can comp underneath).
+
+- **never stop** — solo without stopping, in swung eighths, then in triplets. What you play does not matter; a silence longer than two and a half notes of the subdivision is a stop (a quarter note among eighths passes). It counts the bars you kept going, and the strip shows the silence running out.
+- **land on a guide tone** — play a phrase, pause, play another: each has to end on the third or the seventh of the chord it lands on (or, for the adventurous, the natural ninth). A note just ahead of a change may land on the chord that is coming. The chart writes both guide tones under every chord, laid out as the two lines they make, and the keys show them for the chord sounding; switch that off to do it from memory.
+- **repeat and change** — play a phrase, then play it again with one thing changed. The answer names what changed: a note, a transposition, the rhythm, the speed, the beat it starts on, backwards, upside down, notes added or left out. The same phrase unchanged does not count, and neither does a new phrase before the last one came back. `change it` sets how many times a phrase returns before a new one.
+
+A phrase is three notes or more, closed by a beat of silence (two beats without a new note if you hold the last one or the pedal).
+
+The changes are a table in [`src/drills/improv.ts`](src/drills/improv.ts), written in numerals four bars a line: the major and the minor 2-5-1, the major into its relative minor (eight bars falling in fifths), the 2-5-1 through all 12 keys on the 2-5-1 drill's walk, a 1-6-2-5 turnaround with two chords a bar, and a jazz blues. To add a progression, add it to that table. The band plays a written chart in sevenths or with extensions, never with substitutions: what is on the chart is what you are aiming at.
 
 ### Without looking
 

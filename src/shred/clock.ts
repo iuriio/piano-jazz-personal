@@ -172,9 +172,12 @@ export class Transport {
     if (!ctx) return
     // getOutputTimestamp gives both clocks at the same instant, which is exactly
     // the bridge we need. Not every browser has it — then we sample by hand.
+    // A context that has only just been allowed to start reports both as zero:
+    // taken as a reading, that put the first beat as far in the future as the
+    // page had been open. Then, too, we sample by hand.
     const ts = ctx.getOutputTimestamp?.()
     const next =
-      ts && ts.contextTime !== undefined && ts.performanceTime !== undefined
+      ts && ts.contextTime !== undefined && ts.performanceTime !== undefined && ts.performanceTime > 0
         ? ts.performanceTime - ts.contextTime * 1000
         : performance.now() - ctx.currentTime * 1000
     // The first measurement lands whole; after that it smooths, or the grid shakes.

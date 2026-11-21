@@ -2,7 +2,8 @@ import { nextNamingStyle } from '../stage/naming'
 import { useSettings } from '../stage/settings'
 import { accompanist, useAccompany, type SheetRow } from './accompanist'
 import { chordText } from './display'
-import { STYLES } from './patterns'
+import { STYLES, type Style } from './patterns'
+import { chartComplexity } from './progression'
 import { Select } from '../ui/Select'
 import { Slider } from '../ui/Slider'
 import { ACCOMPANY_DRUMS_OPTIONS, ACCOMPANY_KEYS_OPTIONS, type AccompanySettings } from './settings'
@@ -19,8 +20,6 @@ export function LeadSheet() {
   const { settings, update } = useSettings()
   const { play } = useAccompany()
   if (!play) return null
-  const acc = settings.accompany
-  const set = (patch: Partial<AccompanySettings>) => update({ accompany: { ...acc, ...patch } })
 
   return (
     <section className="panel notation lead-sheet" aria-label="accompaniment chart">
@@ -43,31 +42,49 @@ export function LeadSheet() {
         ))}
       </div>
 
-      <div className="ls-controls">
-        <label className="ls-ctl">
-          <span className="grp-label">keys</span>
-          <Select
-            value={acc.keys}
-            onValueChange={(v) => set({ keys: v as AccompanySettings['keys'] })}
-            options={ACCOMPANY_KEYS_OPTIONS}
-          />
-        </label>
-        <label className="ls-ctl">
-          <span className="grp-label">drums</span>
-          <Select
-            value={acc.drums}
-            onValueChange={(v) => set({ drums: v as AccompanySettings['drums'] })}
-            options={ACCOMPANY_DRUMS_OPTIONS}
-          />
-        </label>
-        <label className="ls-ctl">
-          <span className="grp-label">style</span>
-          <Select
-            value={acc.style}
-            onValueChange={(v) => set({ style: v as AccompanySettings['style'] })}
-            options={[{ value: 'auto', label: `auto (${play.style})` }, ...STYLES.map((s) => ({ value: s, label: s }))]}
-          />
-        </label>
+      <BandControls style={play.style} />
+    </section>
+  )
+}
+
+/**
+ * The band's own knobs, under any chart it plays: its piano, drums, style, how
+ * rich the chords are, its volume. `written` is a chart played as written: the
+ * bars-per-chord choice does not apply to it.
+ */
+export function BandControls({ style, written = false }: { style: Style; written?: boolean }) {
+  const { settings, update } = useSettings()
+  const acc = settings.accompany
+  const set = (patch: Partial<AccompanySettings>) => update({ accompany: { ...acc, ...patch } })
+  const complexity = written ? chartComplexity(acc.complexity) : acc.complexity
+
+  return (
+    <div className="ls-controls">
+      <label className="ls-ctl">
+        <span className="grp-label">keys</span>
+        <Select
+          value={acc.keys}
+          onValueChange={(v) => set({ keys: v as AccompanySettings['keys'] })}
+          options={ACCOMPANY_KEYS_OPTIONS}
+        />
+      </label>
+      <label className="ls-ctl">
+        <span className="grp-label">drums</span>
+        <Select
+          value={acc.drums}
+          onValueChange={(v) => set({ drums: v as AccompanySettings['drums'] })}
+          options={ACCOMPANY_DRUMS_OPTIONS}
+        />
+      </label>
+      <label className="ls-ctl">
+        <span className="grp-label">style</span>
+        <Select
+          value={acc.style}
+          onValueChange={(v) => set({ style: v as AccompanySettings['style'] })}
+          options={[{ value: 'auto', label: `auto (${style})` }, ...STYLES.map((s) => ({ value: s, label: s }))]}
+        />
+      </label>
+      {!written && (
         <label className="ls-ctl" title="Bars per chord">
           <span className="grp-label">density</span>
           <Select
@@ -80,31 +97,31 @@ export function LeadSheet() {
             ]}
           />
         </label>
-        <label className="ls-ctl ls-rich" title={COMPLEXITY_LABEL[acc.complexity - 1]}>
-          <span className="grp-label">simple</span>
-          <Slider
-            min={1}
-            max={4}
-            value={acc.complexity}
-            aria-label="chord complexity"
-            aria-valuetext={COMPLEXITY_LABEL[acc.complexity - 1]}
-            onValueChange={(v) => set({ complexity: v as AccompanySettings['complexity'] })}
-          />
-          <span className="grp-label">rich</span>
-        </label>
-        <label className="ls-ctl">
-          <span className="grp-label">vol</span>
-          <Slider
-            min={0}
-            max={100}
-            step={5}
-            value={Math.round(acc.level * 100)}
-            aria-label="accompaniment volume"
-            onValueChange={(v) => set({ level: v / 100 })}
-          />
-        </label>
-      </div>
-    </section>
+      )}
+      <label className="ls-ctl ls-rich" title={COMPLEXITY_LABEL[complexity - 1]}>
+        <span className="grp-label">simple</span>
+        <Slider
+          min={written ? 2 : 1}
+          max={written ? 3 : 4}
+          value={complexity}
+          aria-label="chord complexity"
+          aria-valuetext={COMPLEXITY_LABEL[complexity - 1]}
+          onValueChange={(v) => set({ complexity: v as AccompanySettings['complexity'] })}
+        />
+        <span className="grp-label">rich</span>
+      </label>
+      <label className="ls-ctl">
+        <span className="grp-label">vol</span>
+        <Slider
+          min={0}
+          max={100}
+          step={5}
+          value={Math.round(acc.level * 100)}
+          aria-label="accompaniment volume"
+          onValueChange={(v) => set({ level: v / 100 })}
+        />
+      </label>
+    </div>
   )
 }
 
@@ -121,8 +138,8 @@ function Row({
 }) {
   return (
     <div className={`ls-row ${row.planned ? 'planned' : ''}`}>
-      <span className="ls-section" aria-label={`section ${row.section}`}>
-        {row.section}
+      <span className="ls-section" aria-label={`section ${row.label}`}>
+        {row.label}
       </span>
       {row.bars.map((bar, i) => {
         const now = i === current
